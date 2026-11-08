@@ -137,32 +137,65 @@ def run_campaign(
         scrape_job.started_at = datetime.now(timezone.utc)
         session.flush()
 
-        external_job_id = scraper.create_job(
-            campaign.niche,
-            campaign.location,
-            campaign.requested_quantity,
-            campaign.filters,
-        )
-        scrape_job.external_job_id = external_job_id
-        session.flush()
+        min_score = campaign.filters.get("min_score", 0) if isinstance(campaign.filters, dict) else 0
+        target_qualified = campaign.requested_quantity
+        attempt = 0
+        max_attempts = 3 if campaign.provider == "live" else 1
 
-        job_res = scraper.get_job(external_job_id)
-        if job_res.status == "failed" or job_res.error:
-            raise ScraperError(job_res.error or "Scraper job failed")
+        while attempt < max_attempts:
+            attempt += 1
+            depth = max(5, min(10 + (attempt - 1) * 5, 25))
+            current_filters = dict(campaign.filters or {})
+            current_filters["depth"] = depth
 
-        scrape_job.status = "completed"
-        scrape_job.finished_at = datetime.now(timezone.utc)
-        scrape_job.raw_snapshot = job_res.raw_snapshot
-        session.flush()
+            external_job_id = scraper.create_job(
+                campaign.niche,
+                campaign.location,
+                limit=max(target_qualified * 2, 50),
+                filters=current_filters,
+            )
+            scrape_job.external_job_id = external_job_id
+            session.flush()
 
-        process_listings(
-            session=session,
-            campaign=campaign,
-            scrape_job=scrape_job,
-            listings=job_res.results,
-            settings=settings,
-            fetcher=fetcher,
-        )
+            job_res = scraper.get_job(external_job_id)
+            if campaign.provider == "live" and job_res.status == "pending":
+                import time
+                for _ in range(45):  # poll up to 90 seconds
+                    time.sleep(2)
+                    job_res = scraper.get_job(external_job_id)
+                    if job_res.status != "pending":
+                        break
+
+            if job_res.status == "failed" or job_res.error:
+                if attempt == 1:
+                    raise ScraperError(job_res.error or "Scraper job failed")
+                break
+
+            scrape_job.status = "completed"
+            scrape_job.finished_at = datetime.now(timezone.utc)
+            scrape_job.raw_snapshot = job_res.raw_snapshot
+            session.flush()
+
+            process_listings(
+                session=session,
+                campaign=campaign,
+                scrape_job=scrape_job,
+                listings=job_res.results,
+                settings=settings,
+                fetcher=fetcher,
+            )
+
+            # Check if we reached target qualified count
+            if min_score > 0:
+                qualified_count = (
+                    session.query(Lead)
+                    .filter(Lead.campaign_id == campaign.id, Lead.overall_score >= min_score)
+                    .count()
+                )
+                if qualified_count >= target_qualified or not job_res.results:
+                    break
+            else:
+                break
 
         campaign.status = "completed"
         session.flush()

@@ -56,7 +56,12 @@ def format_approval_card(
     return card_text, buttons
 
 
-def generate_campaign_csv(db: Session, campaign_id: uuid.UUID, min_score: int = 0) -> str:
+def generate_campaign_csv(
+    db: Session,
+    campaign_id: uuid.UUID,
+    min_score: int = 0,
+    limit: int = 0,
+) -> str:
     query = (
         db.query(Lead, Business)
         .join(Business, Lead.business_id == Business.id)
@@ -65,11 +70,16 @@ def generate_campaign_csv(db: Session, campaign_id: uuid.UUID, min_score: int = 
     if min_score > 0:
         query = query.filter(Lead.overall_score >= min_score)
 
-    leads = query.order_by(Lead.overall_score.desc()).all()
+    query = query.order_by(Lead.overall_score.desc())
+    if limit > 0:
+        query = query.limit(limit)
+
+    leads = query.all()
 
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow([
+        "rank",
         "name",
         "location",
         "overall_score",
@@ -85,10 +95,11 @@ def generate_campaign_csv(db: Session, campaign_id: uuid.UUID, min_score: int = 
         "outreach_status",
     ])
 
-    for lead, biz in leads:
+    for rank, (lead, biz) in enumerate(leads, start=1):
         dims = db.query(DimensionScore).filter_by(lead_id=lead.id).all()
         reason_codes = "; ".join(f"{d.dimension}:{d.reason_code}" for d in dims)
         writer.writerow([
+            rank,
             biz.name,
             biz.locality or biz.address or "",
             lead.overall_score,
@@ -122,6 +133,23 @@ def send_telegram_document(
     try:
         with httpx.Client(timeout=15.0) as client:
             resp = client.post(url, data=data, files=files)
+            return resp.status_code == 200
+    except Exception:
+        return False
+
+
+def send_telegram_text(
+    bot_token: str,
+    chat_id: str | int,
+    text: str,
+) -> bool:
+    if not bot_token:
+        return False
+    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+    payload = {"chat_id": str(chat_id), "text": text, "parse_mode": "Markdown"}
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.post(url, json=payload)
             return resp.status_code == 200
     except Exception:
         return False
@@ -352,8 +380,32 @@ def handle_telegram_update(
                 "provider": settings.DISCOVERY_PROVIDER,
             }
 
-            camp = create_campaign(db, payload, settings)
-            run_campaign(db, camp.id, settings)
+            # Send immediate acknowledgement to user
+            if settings.TELEGRAM_BOT_TOKEN and user_id:
+                send_telegram_text(
+                    bot_token=settings.TELEGRAM_BOT_TOKEN,
+                    chat_id=user_id,
+                    text=(
+                        f"⏳ *Campaign Queued & Processing!*\n\n"
+                        f"• Target Niche: *{niche}*\n"
+                        f"• Location: *{location}*\n"
+                        f"• Benchmark Filter: *Score ≥ {bench_score}*\n\n"
+                        f"🔍 Discovering businesses and auditing websites for {settings.AGENCY_NAME} now...\n"
+                        f"Your scored leads and `.csv` file will be sent here shortly!"
+                    ),
+                )
+
+            try:
+                camp = create_campaign(db, payload, settings)
+                run_campaign(db, camp.id, settings)
+            except Exception as exc:
+                if settings.TELEGRAM_BOT_TOKEN and user_id:
+                    send_telegram_text(
+                        bot_token=settings.TELEGRAM_BOT_TOKEN,
+                        chat_id=user_id,
+                        text=f"⚠️ *Campaign Notice:* {exc}\nPlease check `/status` or send `/findleads` to retry.",
+                    )
+                raise
 
             total_leads = db.query(Lead).filter_by(campaign_id=camp.id).count()
             matching_leads = (
@@ -362,7 +414,7 @@ def handle_telegram_update(
                 .count()
             )
 
-            csv_str = generate_campaign_csv(db, camp.id, min_score=bench_score)
+            csv_str = generate_campaign_csv(db, camp.id, min_score=bench_score, limit=qty)
             filename = f"intentlead_{niche.replace(' ', '_').lower()}_bench{bench_score}_{camp.id}.csv"
 
             if settings.TELEGRAM_BOT_TOKEN and user_id:
@@ -560,8 +612,31 @@ def handle_telegram_update(
             "provider": settings.DISCOVERY_PROVIDER,
         }
 
-        camp = create_campaign(db, payload, settings)
-        run_campaign(db, camp.id, settings)
+        if settings.TELEGRAM_BOT_TOKEN and user_id:
+            send_telegram_text(
+                bot_token=settings.TELEGRAM_BOT_TOKEN,
+                chat_id=user_id,
+                text=(
+                    f"⏳ *Campaign Queued & Processing!*\n\n"
+                    f"• Target Niche: *{niche}*\n"
+                    f"• Location: *{location}*\n"
+                    f"• Benchmark Filter: *Score ≥ {bench_score}*\n\n"
+                    f"🔍 Discovering businesses and auditing websites for {settings.AGENCY_NAME} now...\n"
+                    f"Your scored leads and `.csv` file will be sent here shortly!"
+                ),
+            )
+
+        try:
+            camp = create_campaign(db, payload, settings)
+            run_campaign(db, camp.id, settings)
+        except Exception as exc:
+            if settings.TELEGRAM_BOT_TOKEN and user_id:
+                send_telegram_text(
+                    bot_token=settings.TELEGRAM_BOT_TOKEN,
+                    chat_id=user_id,
+                    text=f"⚠️ *Campaign Notice:* {exc}\nPlease check `/status` or send `/findleads` to retry.",
+                )
+            raise
 
         total_leads = db.query(Lead).filter_by(campaign_id=camp.id).count()
         matching_leads = (
@@ -572,7 +647,7 @@ def handle_telegram_update(
             else total_leads
         )
 
-        csv_str = generate_campaign_csv(db, camp.id, min_score=bench_score)
+        csv_str = generate_campaign_csv(db, camp.id, min_score=bench_score, limit=qty)
         filename = f"intentlead_{niche.replace(' ', '_').lower()}_bench{bench_score}_{camp.id}.csv"
 
         if settings.TELEGRAM_BOT_TOKEN and user_id:
