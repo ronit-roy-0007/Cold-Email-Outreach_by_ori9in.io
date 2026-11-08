@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import csv
+import io
 import re
 from typing import Any
 import uuid
 
+import httpx
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.models import Approval, AuditLog, Business, Campaign, Evidence, Lead, MessageDraft
+from app.models import Approval, AuditLog, Business, Campaign, DimensionScore, Evidence, Lead, MessageDraft
 from app.services.campaigns import create_campaign
 from app.services.pipeline import run_campaign
 
@@ -51,6 +54,73 @@ def format_approval_card(
     ]
 
     return card_text, buttons
+
+
+def generate_campaign_csv(db: Session, campaign_id: uuid.UUID) -> str:
+    leads = (
+        db.query(Lead, Business)
+        .join(Business, Lead.business_id == Business.id)
+        .filter(Lead.campaign_id == campaign_id)
+        .order_by(Lead.overall_score.desc())
+        .all()
+    )
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "name",
+        "location",
+        "overall_score",
+        "priority",
+        "confidence",
+        "recommended_service",
+        "discovery_source",
+        "reason_codes",
+        "website",
+        "phone",
+        "email",
+        "outreach_status",
+    ])
+
+    for lead, biz in leads:
+        dims = db.query(DimensionScore).filter_by(lead_id=lead.id).all()
+        reason_codes = "; ".join(f"{d.dimension}:{d.reason_code}" for d in dims)
+        writer.writerow([
+            biz.name,
+            biz.locality or biz.address or "",
+            lead.overall_score,
+            lead.priority,
+            lead.confidence,
+            lead.recommended_service or "",
+            biz.discovery_source,
+            reason_codes,
+            biz.website or "",
+            biz.phone or "",
+            biz.email or "",
+            lead.outreach_status,
+        ])
+
+    return output.getvalue()
+
+
+def send_telegram_document(
+    bot_token: str,
+    chat_id: str | int,
+    file_bytes: bytes,
+    filename: str,
+    caption: str = "",
+) -> bool:
+    if not bot_token:
+        return False
+    url = f"https://api.telegram.org/bot{bot_token}/sendDocument"
+    files = {"document": (filename, file_bytes, "text/csv")}
+    data = {"chat_id": str(chat_id), "caption": caption}
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.post(url, data=data, files=files)
+            return resp.status_code == 200
+    except Exception:
+        return False
 
 
 def record_approval(
@@ -161,6 +231,7 @@ def handle_telegram_update(
             "• `/status` — View recent campaigns status\n"
             "• `/showpriority <A|B|C|D>` — List leads by priority band\n"
             "• `/card <lead_id>` — Show interactive approval card\n"
+            "• `/export_csv [campaign_id]` — Export leads CSV directly to chat\n"
         )
         return {"status": "success", "reply": help_text}
 
@@ -210,6 +281,40 @@ def handle_telegram_update(
         except ValueError:
             return {"status": "error", "reply": "Invalid lead UUID format"}
 
+    if text.startswith("/export_csv"):
+        parts = text.split(maxsplit=1)
+        camp: Campaign | None = None
+        if len(parts) > 1:
+            try:
+                camp = db.get(Campaign, uuid.UUID(parts[1].strip()))
+            except ValueError:
+                return {"status": "error", "reply": "Invalid campaign UUID format"}
+        else:
+            camp = db.query(Campaign).order_by(Campaign.created_at.desc()).first()
+
+        if not camp:
+            return {"status": "error", "reply": "No campaign found to export."}
+
+        csv_str = generate_campaign_csv(db, camp.id)
+        filename = f"intentlead_{camp.niche.replace(' ', '_').lower()}_{camp.id}.csv"
+
+        if settings.TELEGRAM_BOT_TOKEN and user_id:
+            send_telegram_document(
+                bot_token=settings.TELEGRAM_BOT_TOKEN,
+                chat_id=user_id,
+                file_bytes=csv_str.encode("utf-8"),
+                filename=filename,
+                caption=f"📄 Leads CSV for {camp.niche} in {camp.location}",
+            )
+
+        reply = f"✅ Exported CSV for *{camp.niche}* ({camp.location}).\nCampaign ID: `{camp.id}`"
+        return {
+            "status": "success",
+            "reply": reply,
+            "filename": filename,
+            "csv_content": csv_str,
+        }
+
     if text.startswith("/findleads"):
         # Format: /findleads Real Estate Agencies in Dallas, Texas 10
         raw_args = text[len("/findleads"):].strip()
@@ -236,13 +341,33 @@ def handle_telegram_update(
         run_campaign(db, camp.id, settings)
         leads_count = db.query(Lead).filter_by(campaign_id=camp.id).count()
 
+        # Generate CSV export
+        csv_str = generate_campaign_csv(db, camp.id)
+        filename = f"intentlead_{niche.replace(' ', '_').lower()}_{camp.id}.csv"
+
+        if settings.TELEGRAM_BOT_TOKEN and user_id:
+            send_telegram_document(
+                bot_token=settings.TELEGRAM_BOT_TOKEN,
+                chat_id=user_id,
+                file_bytes=csv_str.encode("utf-8"),
+                filename=filename,
+                caption=f"📄 Leads CSV: {leads_count} prospects scored for {niche}",
+            )
+
         reply = (
             f"🚀 *Campaign Launched & Scored!*\n\n"
             f"• Target: *{niche}* in *{location}*\n"
             f"• Scored Leads: *{leads_count}*\n"
             f"• Campaign ID: `{camp.id}`\n\n"
-            f"Use `/showpriority B` or `/showpriority C` to inspect leads."
+            f"📄 CSV generated: `{filename}`\n"
+            f"Use `/showpriority B` or `/card <lead_id>` to inspect."
         )
-        return {"status": "success", "reply": reply}
+        return {
+            "status": "success",
+            "reply": reply,
+            "filename": filename,
+            "csv_content": csv_str,
+            "campaign_id": str(camp.id),
+        }
 
     return {"status": "unknown_command", "reply": "Unrecognized command. Type `/help` for options."}

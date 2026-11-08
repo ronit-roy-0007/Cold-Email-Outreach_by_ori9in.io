@@ -1,5 +1,5 @@
 {
-  "name": "IntentLead - 01 Discovery Campaign Trigger",
+  "name": "IntentLead - 01 Discovery Campaign Trigger & CSV Delivery",
   "nodes": [
     {
       "parameters": {
@@ -17,7 +17,7 @@
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.1,
       "position": [
-        250,
+        200,
         300
       ]
     },
@@ -33,7 +33,7 @@
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
       "position": [
-        250,
+        200,
         500
       ],
       "webhookId": "intentlead-discovery-hook"
@@ -54,14 +54,14 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
       "position": [
-        550,
+        450,
         400
       ]
     },
     {
       "parameters": {
         "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
-        "text": "=🚀 *IntentLead Discovery Run Finished*\n\nCampaign ID: `{{ $json.campaign_id }}`\nNiche: *{{ $json.niche }}* ({{ $json.location }})\nStatus: *{{ $json.status }}*\nLeads Scored & Audited: *{{ $json.leads_scored }}*\n\nInspect leads on dashboard: http://localhost:8000/campaigns/{{ $json.campaign_id }}",
+        "text": "=🚀 *IntentLead Discovery Run Finished*\n\nCampaign ID: `{{ $json.campaign_id }}`\nNiche: *{{ $json.niche }}* ({{ $json.location }})\nStatus: *{{ $json.status }}*\nLeads Scored & Audited: *{{ $json.leads_scored }}*\n\nDashboard: http://localhost:8000/campaigns/{{ $json.campaign_id }}",
         "additionalFields": {
           "parse_mode": "Markdown"
         }
@@ -71,8 +71,42 @@
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1,
       "position": [
-        850,
-        400
+        700,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=http://localhost:8000/campaigns/{{ $json.campaign_id }}/export.csv",
+        "responseFormat": "file",
+        "options": {}
+      },
+      "id": "http-get-csv",
+      "name": "Download Scored Leads CSV",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        700,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "sendDocument",
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "binaryPropertyName": "data",
+        "additionalFields": {
+          "caption": "📄 Scored Leads CSV export ready for review"
+        }
+      },
+      "id": "telegram-send-doc",
+      "name": "Send CSV Document to Telegram Chat",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [
+        950,
+        500
       ]
     }
   ],
@@ -104,6 +138,22 @@
         [
           {
             "node": "Notify Operator on Telegram",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Download Scored Leads CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Scored Leads CSV": {
+      "main": [
+        [
+          {
+            "node": "Send CSV Document to Telegram Chat",
             "type": "main",
             "index": 0
           }

@@ -123,3 +123,28 @@ def test_pending_approvals_endpoint(client, db_session, auth_settings):
     assert "card_markdown" in first
     assert "inline_keyboard" in first
     assert "LEAD APPROVAL CARD" in first["card_markdown"]
+
+
+def test_export_csv_command(client, db_session, auth_settings):
+    payload = {
+        "niche": "Real Estate Agencies",
+        "location": "Dallas, Texas",
+        "requested_quantity": 3,
+        "target_services": ["website_development"],
+        "filters": {},
+    }
+    camp = create_campaign(db_session, payload, auth_settings)
+    run_campaign(db_session, camp.id, auth_settings)
+
+    update = {
+        "message": {
+            "from": {"id": 123456789},
+            "text": f"/export_csv {camp.id}",
+        }
+    }
+    res = client.post("/api/orchestrator/webhooks/telegram", json=update)
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] == "success"
+    assert "csv_content" in data
+    assert "name,location,overall_score" in data["csv_content"]
