@@ -197,4 +197,67 @@ def test_interactive_wizard_flow(client, db_session):
     assert "Campaign Completed & Scored" in res_data["reply"]
     assert "csv_content" in res_data
     assert "benchmark_met" in res_data["csv_content"]
+    assert "buttons" in res_data
+
+
+def test_bulk_approve_campaign(client, db_session, auth_settings):
+    payload = {
+        "niche": "Real Estate Agencies",
+        "location": "Dallas, Texas",
+        "requested_quantity": 5,
+        "target_services": ["website_development"],
+        "filters": {"min_score": 50},
+    }
+    camp = create_campaign(db_session, payload, auth_settings)
+    run_campaign(db_session, camp.id, auth_settings)
+
+    # Approve all leads via command
+    update = {
+        "message": {
+            "from": {"id": 123456789},
+            "text": f"/approve_campaign {camp.id} 50",
+        }
+    }
+    res = client.post("/api/orchestrator/webhooks/telegram", json=update)
+    assert res.status_code == 200
+    assert "Successfully approved" in res.json()["reply"]
+
+    leads = db_session.query(Lead).filter_by(campaign_id=camp.id).all()
+    assert all(l.outreach_status == "approved" for l in leads if l.overall_score >= 50)
+
+
+def test_review_flow_and_callback(client, db_session, auth_settings):
+    payload = {
+        "niche": "Real Estate Agencies",
+        "location": "Dallas, Texas",
+        "requested_quantity": 5,
+        "target_services": ["website_development"],
+        "filters": {"min_score": 50},
+    }
+    camp = create_campaign(db_session, payload, auth_settings)
+    run_campaign(db_session, camp.id, auth_settings)
+
+    # 1. Trigger /review
+    res = client.post("/api/orchestrator/webhooks/telegram", json={
+        "message": {"from": {"id": 123456789}, "text": f"/review {camp.id} 50"}
+    })
+    assert res.status_code == 200
+    data = res.json()
+    assert "LEAD APPROVAL CARD" in data["reply"]
+    assert "buttons" in data
+
+    # 2. Click Approve & Next on the lead
+    lead = db_session.query(Lead).filter_by(campaign_id=camp.id, outreach_status="draft").first()
+    assert lead is not None
+
+    cb_res = client.post("/api/orchestrator/webhooks/telegram", json={
+        "callback_query": {
+            "from": {"id": 123456789},
+            "data": f"review_approve:{lead.id}",
+        }
+    })
+    assert cb_res.status_code == 200
+    db_session.refresh(lead)
+    assert lead.outreach_status == "approved"
+
 

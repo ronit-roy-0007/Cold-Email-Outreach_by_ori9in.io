@@ -94,8 +94,9 @@ def run_poller():
                             if cb_id:
                                 answer_callback_query(token, cb_id, msg)
                             chat_id = cb.get("message", {}).get("chat", {}).get("id")
+                            reply_text = res.get("reply") or f"📝 {msg}"
                             if chat_id:
-                                send_reply(token, chat_id, f"📝 {msg}")
+                                send_reply(token, chat_id, reply_text, buttons=res.get("buttons"))
 
                         # If this was a text message
                         elif "message" in update and res.get("reply"):

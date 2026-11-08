@@ -13,6 +13,7 @@ from app.config import Settings
 from app.models import Approval, AuditLog, Business, Campaign, DimensionScore, Evidence, Lead, MessageDraft
 from app.services.campaigns import create_campaign
 from app.services.pipeline import run_campaign
+from app.services.gemini_personalizer import generate_gemini_pitch
 
 
 def format_approval_card(
@@ -20,40 +21,122 @@ def format_approval_card(
     biz: Business,
     draft: MessageDraft | None,
     evidence: list[Evidence],
+    is_review_mode: bool = False,
+    remaining_count: int | None = None,
 ) -> tuple[str, list[list[dict[str, str]]]]:
-    rec_svc = (lead.recommended_service or "None (< 40)").replace("_", " ")
+    rec_svc = (lead.recommended_service or "lead_management_followup").replace("_", " ")
 
     verified_gaps = [
         e.claim
         for e in evidence
         if e.evidence_type in ("verified_observation", "explicit_intent")
     ]
-    gaps_text = "\n".join(f"• {g}" for g in verified_gaps[:3]) if verified_gaps else "• No visible gaps verified"
+    gaps_text = "\n".join(f"• {g}" for g in verified_gaps[:3]) if verified_gaps else "• Digital outreach & lead management gap identified"
+
+    source_fields = biz.source_fields if isinstance(biz.source_fields, dict) else {}
+    reviews = source_fields.get("reviews") or []
+    review_excerpt = f"\n💬 *Customer Feedback:* \"{reviews[0]}\"" if reviews else ""
+
+    rating_display = f"{biz.rating:.1f}★" if biz.rating is not None else "N/A"
+    reviews_count_display = f"({biz.review_count} reviews)" if biz.review_count is not None else ""
 
     draft_text = draft.body if draft and draft.body else "(Draft not recommended: " + (draft.not_recommended_reason or "criteria not met") + ")"
+    rem_hdr = f" (Remaining: {remaining_count})" if remaining_count is not None else ""
 
     card_text = (
-        f"🎯 *LEAD APPROVAL CARD (DRY-RUN)*\n\n"
+        f"🎯 *LEAD APPROVAL CARD (DRY-RUN)*{rem_hdr}\n\n"
         f"🏢 *{biz.name}*\n"
-        f"📍 {biz.locality or biz.address or 'Dallas, Texas'}\n"
-        f"🌐 Website: {biz.website or 'None'}\n"
-        f"📞 Phone: {biz.phone or 'None'}\n\n"
+        f"📍 Location: {biz.locality or biz.address or 'Local Area'}\n"
+        f"🌐 Website: {biz.website or 'No website listed'}\n"
+        f"⭐ Rating: *{rating_display}* {reviews_count_display}\n"
+        f"📞 Phone: `{biz.phone or 'N/A'}` | ✉️ `{biz.email or 'N/A'}`\n\n"
         f"⭐ *Priority {lead.priority}* — Score: *{lead.overall_score}/100* ({lead.confidence} confidence)\n"
         f"💼 *Recommended Service:* {rec_svc}\n\n"
-        f"🔍 *Key Verified Evidence:*\n{gaps_text}\n\n"
+        f"🔍 *Key Verified Evidence:*\n{gaps_text}{review_excerpt}\n\n"
         f"📝 *Outreach Draft Preview:*\n```\n{draft_text}\n```\n\n"
         f"⚠️ _Outreach is in dry-run mode. Approving marks the lead as approved in CRM without live sending._"
     )
 
+    prefix = "review_" if is_review_mode else ""
     buttons = [
         [
-            {"text": "✅ Approve", "callback_data": f"approve:{lead.id}"},
-            {"text": "⏭️ Skip", "callback_data": f"skip:{lead.id}"},
-            {"text": "❌ Reject", "callback_data": f"reject:{lead.id}"},
-        ]
+            {"text": "✅ Approve & Next" if is_review_mode else "✅ Approve", "callback_data": f"{prefix}approve:{lead.id}"},
+            {"text": "⏭️ Skip", "callback_data": f"{prefix}skip:{lead.id}"},
+        ],
+        [
+            {"text": "🔄 AI Regenerate", "callback_data": f"{prefix}regen:{lead.id}"},
+            {"text": "❌ Reject", "callback_data": f"{prefix}reject:{lead.id}"},
+        ],
     ]
 
     return card_text, buttons
+
+
+def approve_entire_campaign(
+    db: Session,
+    campaign_id: uuid.UUID,
+    user_id: str,
+    min_score: int = 80,
+) -> dict[str, Any]:
+    camp = db.get(Campaign, campaign_id)
+    if not camp:
+        return {"status": "error", "message": f"Campaign {campaign_id} not found."}
+
+    leads = (
+        db.query(Lead)
+        .filter(Lead.campaign_id == campaign_id, Lead.overall_score >= min_score)
+        .all()
+    )
+
+    approved_count = 0
+    for lead in leads:
+        if lead.outreach_status != "approved":
+            lead.outreach_status = "approved"
+            lead.crm_stage = "approved"
+            approval_entry = Approval(
+                lead_id=lead.id,
+                user_id=user_id,
+                action="approved",
+            )
+            db.add(approval_entry)
+            approved_count += 1
+
+    if approved_count > 0:
+        audit_entry = AuditLog(
+            action="campaign_batch_approved",
+            entity_type="campaign",
+            entity_id=campaign_id,
+            payload={"user_id": user_id, "approved_count": approved_count, "min_score": min_score},
+        )
+        db.add(audit_entry)
+        db.flush()
+
+    return {
+        "status": "success",
+        "approved_count": approved_count,
+        "total_matching": len(leads),
+        "campaign_niche": camp.niche,
+        "campaign_location": camp.location,
+        "message": f"🚀 Successfully approved *{approved_count} qualified leads* (Score ≥ {min_score}) for *{camp.niche}* ({camp.location})! Ready for outreach.",
+    }
+
+
+def get_next_pending_lead(
+    db: Session,
+    campaign_id: uuid.UUID | None = None,
+    min_score: int = 80,
+) -> tuple[Lead | None, int]:
+    query = db.query(Lead).filter(Lead.overall_score >= min_score, Lead.outreach_status == "draft")
+    if campaign_id:
+        query = query.filter(Lead.campaign_id == campaign_id)
+    else:
+        latest_camp = db.query(Campaign).order_by(Campaign.created_at.desc()).first()
+        if latest_camp:
+            query = query.filter(Lead.campaign_id == latest_camp.id)
+
+    total_pending = query.count()
+    lead = query.order_by(Lead.overall_score.desc()).first()
+    return lead, total_pending
 
 
 def generate_campaign_csv(
@@ -279,7 +362,102 @@ def handle_telegram_update(
     if "callback_query" in update:
         cb = update["callback_query"]
         cb_data = cb.get("data", "")
-        if ":" in cb_data:
+
+        # 1A. Bulk approve entire campaign
+        if cb_data.startswith("bulk_approve:"):
+            parts = cb_data.split(":")
+            camp_uuid = uuid.UUID(parts[1])
+            score_filter = int(parts[2]) if len(parts) > 2 else 80
+            res = approve_entire_campaign(db, camp_uuid, str(user_id), min_score=score_filter)
+            return {"status": "success", "message": res["message"], "reply": res["message"]}
+
+        # 1B. Start review from button
+        elif cb_data.startswith("start_review:"):
+            parts = cb_data.split(":")
+            camp_uuid = uuid.UUID(parts[1]) if len(parts) > 1 and parts[1] else None
+            score_filter = int(parts[2]) if len(parts) > 2 else 80
+            lead, pending_count = get_next_pending_lead(db, campaign_id=camp_uuid, min_score=score_filter)
+            if not lead:
+                return {"status": "success", "message": "All leads reviewed!", "reply": "🎉 All leads have already been reviewed!"}
+            biz = db.get(Business, lead.business_id)
+            draft = db.query(MessageDraft).filter_by(lead_id=lead.id).first()
+            evs = db.query(Evidence).filter_by(business_id=lead.business_id, campaign_id=lead.campaign_id).all()
+
+            if settings.USER_LLM_API_KEY and (not draft or not draft.body or "(Draft" in draft.body):
+                ai_pitch = generate_gemini_pitch(business=biz, lead=lead, evidence=evs, settings=settings)
+                if ai_pitch:
+                    if not draft:
+                        draft = MessageDraft(lead_id=lead.id, channel="preview", status="preview", body=ai_pitch, evidence_ids=[])
+                        db.add(draft)
+                    else:
+                        draft.body = ai_pitch
+                    db.flush()
+
+            card_text, buttons = format_approval_card(lead, biz, draft, evs, is_review_mode=True, remaining_count=pending_count)
+            return {"status": "success", "message": "Opening lead review...", "reply": card_text, "buttons": buttons}
+
+        # 1C. Review actions (review_approve, review_skip, review_reject, review_regen)
+        elif cb_data.startswith("review_"):
+            raw_action = cb_data.replace("review_", "", 1)
+            action, lead_id_str = raw_action.split(":", 1)
+            try:
+                lead_uuid = uuid.UUID(lead_id_str)
+            except ValueError:
+                return {"status": "error", "message": "Invalid lead UUID in callback"}
+
+            curr_lead = db.get(Lead, lead_uuid)
+            curr_biz = db.get(Business, curr_lead.business_id) if curr_lead else None
+            camp_id = curr_lead.campaign_id if curr_lead else None
+
+            if action == "regen":
+                evs = db.query(Evidence).filter_by(business_id=curr_biz.id).all() if curr_biz else []
+                draft = db.query(MessageDraft).filter_by(lead_id=lead_uuid).first()
+                new_pitch = generate_gemini_pitch(business=curr_biz, lead=curr_lead, evidence=evs, settings=settings) if curr_biz and curr_lead else None
+                if new_pitch and draft:
+                    draft.body = new_pitch
+                    db.flush()
+                    card_text, buttons = format_approval_card(curr_lead, curr_biz, draft, evs, is_review_mode=True)
+                    return {"status": "success", "message": "✨ AI Pitch Regenerated!", "reply": f"✨ *Regenerated with Gemini for {curr_biz.name}:*\n\n" + card_text, "buttons": buttons}
+                else:
+                    return {"status": "error", "message": "Gemini API key not configured or returned no output."}
+
+            res = record_approval(db, lead_uuid, str(user_id), action)
+
+            # Fetch the next pending lead
+            next_lead, pending_count = get_next_pending_lead(db, campaign_id=camp_id, min_score=80)
+            if not next_lead:
+                action_word = "Approved" if action == "approve" else ("Skipped" if action == "skip" else "Rejected")
+                return {
+                    "status": "success",
+                    "message": f"Lead {action_word}. All caught up!",
+                    "reply": f"🎉 *Review Complete!*\n\nAll qualified leads in this campaign have been processed. Send `/findleads` for new leads or check `/status`.",
+                }
+
+            next_biz = db.get(Business, next_lead.business_id)
+            next_draft = db.query(MessageDraft).filter_by(lead_id=next_lead.id).first()
+            next_evs = db.query(Evidence).filter_by(business_id=next_lead.business_id, campaign_id=next_lead.campaign_id).all()
+
+            if settings.USER_LLM_API_KEY and (not next_draft or not next_draft.body or "(Draft" in next_draft.body):
+                ai_pitch = generate_gemini_pitch(business=next_biz, lead=next_lead, evidence=next_evs, settings=settings)
+                if ai_pitch:
+                    if not next_draft:
+                        next_draft = MessageDraft(lead_id=next_lead.id, channel="preview", status="preview", body=ai_pitch, evidence_ids=[])
+                        db.add(next_draft)
+                    else:
+                        next_draft.body = ai_pitch
+                    db.flush()
+
+            card_text, buttons = format_approval_card(next_lead, next_biz, next_draft, next_evs, is_review_mode=True, remaining_count=pending_count)
+            action_tag = "✅ Approved" if action == "approve" else ("⏭️ Skipped" if action == "skip" else "❌ Rejected")
+            return {
+                "status": "success",
+                "message": f"{action_tag} '{curr_biz.name if curr_biz else 'Lead'}'. Next lead loaded.",
+                "reply": f"{action_tag} *{curr_biz.name if curr_biz else 'Lead'}*!\n\n" + card_text,
+                "buttons": buttons,
+            }
+
+        # 1D. Standard single callback (approve:uuid, reject:uuid, skip:uuid)
+        elif ":" in cb_data:
             action, lead_id_str = cb_data.split(":", 1)
             try:
                 lead_uuid = uuid.UUID(lead_id_str)
@@ -421,7 +599,14 @@ def handle_telegram_update(
             csv_str = generate_campaign_csv(db, camp.id, min_score=bench_score, limit=qty)
             filename = f"intentlead_{niche.replace(' ', '_').lower()}_bench{bench_score}_{camp.id}.csv"
 
+            buttons = None
             if matching_leads > 0:
+                buttons = [
+                    [
+                        {"text": f"🚀 Approve All {min(matching_leads, qty)} Leads", "callback_data": f"bulk_approve:{camp.id}:{bench_score}"},
+                        {"text": "🔍 Review 1-by-1", "callback_data": f"start_review:{camp.id}:{bench_score}"},
+                    ]
+                ]
                 if settings.TELEGRAM_BOT_TOKEN and user_id:
                     caption = f"📄 Leads CSV: {min(matching_leads, qty)} qualified leads matching Benchmark Score ≥ {bench_score} (Ranked #1 to #{min(matching_leads, qty)})"
                     send_telegram_document(
@@ -442,7 +627,9 @@ def handle_telegram_update(
                     f"• Campaign ID: `{camp.id}`\n\n"
                     f"📄 *Delivered CSV:* `{filename}`\n"
                     f"Top *{min(matching_leads, qty)}* leads strictly ordered in descending intent score with rankings 1–{min(matching_leads, qty)} have been sent above!\n\n"
-                    f"Use `/showpriority A` or `/export_csv` to inspect anytime."
+                    f"👇 *Choose Your Next Step:*\n"
+                    f"• Tap *Approve All* to approve the full batch for outreach\n"
+                    f"• Tap *Review 1-by-1* or send `/review` to inspect each lead card with AI pitch"
                 )
             else:
                 reply = (
@@ -458,6 +645,7 @@ def handle_telegram_update(
             return {
                 "status": "success",
                 "reply": reply,
+                "buttons": buttons,
                 "filename": filename,
                 "csv_content": csv_str,
                 "campaign_id": str(camp.id),
@@ -470,6 +658,8 @@ def handle_telegram_update(
             "Commands:\n"
             "• `/findleads` — Start interactive 5-step campaign wizard\n"
             "• `/findleads <niche> in <location> [qty] [bench_score]` — Quick discovery command\n"
+            "• `/review [campaign_id] [score]` — Step through qualified leads one-by-one with 1-click approval\n"
+            "• `/approve_campaign [campaign_id] [score]` — Bulk approve all qualified leads for outreach\n"
             "• `/cancel` — Cancel active campaign questionnaire\n"
             "• `/status` — View recent campaigns status\n"
             "• `/showpriority <A|B|C|D>` — List leads by priority band\n"
@@ -523,6 +713,73 @@ def handle_telegram_update(
             return {"status": "success", "reply": card_text, "buttons": buttons}
         except ValueError:
             return {"status": "error", "reply": "Invalid lead UUID format"}
+
+    if text.startswith("/approve_campaign"):
+        parts = text.split()
+        camp = None
+        min_score = 80
+        if len(parts) > 1:
+            try:
+                camp = db.get(Campaign, uuid.UUID(parts[1].strip()))
+            except ValueError:
+                camp = None
+            if len(parts) > 2:
+                try:
+                    min_score = int(parts[2].strip())
+                except ValueError:
+                    min_score = 80
+        if not camp:
+            camp = db.query(Campaign).order_by(Campaign.created_at.desc()).first()
+        if not camp:
+            return {"status": "error", "reply": "No campaign found to approve."}
+
+        res = approve_entire_campaign(db, camp.id, str(user_id), min_score=min_score)
+        return {"status": "success", "reply": res["message"]}
+
+    if text.startswith("/review"):
+        parts = text.split()
+        camp = None
+        min_score = 80
+        if len(parts) > 1:
+            try:
+                camp = db.get(Campaign, uuid.UUID(parts[1].strip()))
+            except ValueError:
+                camp = None
+            if len(parts) > 2:
+                try:
+                    min_score = int(parts[2].strip())
+                except ValueError:
+                    min_score = 80
+        if not camp:
+            camp = db.query(Campaign).order_by(Campaign.created_at.desc()).first()
+
+        camp_id = camp.id if camp else None
+        lead, pending_count = get_next_pending_lead(db, campaign_id=camp_id, min_score=min_score)
+        if not lead:
+            # Check with broader threshold
+            lead, pending_count = get_next_pending_lead(db, campaign_id=camp_id, min_score=50)
+            if not lead:
+                return {
+                    "status": "success",
+                    "reply": "🎉 *All caught up!* All qualified leads have already been reviewed and approved. Send `/findleads` to run a new search.",
+                }
+
+        biz = db.get(Business, lead.business_id)
+        draft = db.query(MessageDraft).filter_by(lead_id=lead.id).first()
+        evs = db.query(Evidence).filter_by(business_id=lead.business_id, campaign_id=lead.campaign_id).all()
+
+        if settings.USER_LLM_API_KEY and (not draft or not draft.body or "(Draft" in draft.body):
+            ai_pitch = generate_gemini_pitch(business=biz, lead=lead, evidence=evs, settings=settings)
+            if ai_pitch:
+                if not draft:
+                    draft = MessageDraft(lead_id=lead.id, channel="preview", status="preview", body=ai_pitch, evidence_ids=[])
+                    db.add(draft)
+                else:
+                    draft.body = ai_pitch
+                db.flush()
+
+        card_text, buttons = format_approval_card(lead, biz, draft, evs, is_review_mode=True, remaining_count=pending_count)
+        return {"status": "success", "reply": card_text, "buttons": buttons}
 
     if text.startswith("/export_csv"):
         parts = text.split()
@@ -676,18 +933,30 @@ def handle_telegram_update(
                 caption=caption,
             )
 
+        buttons = None
+        if matching_leads > 0:
+            buttons = [
+                [
+                    {"text": f"🚀 Approve All {matching_leads} Leads", "callback_data": f"bulk_approve:{camp.id}:{bench_score}"},
+                    {"text": "🔍 Review 1-by-1", "callback_data": f"start_review:{camp.id}:{bench_score}"},
+                ]
+            ]
+
         reply = (
             f"🚀 *Campaign Launched & Scored!*\n\n"
             f"• Target: *{niche}* in *{location}*\n"
             f"• Benchmark Filter: *Score ≥ {bench_score}*\n"
             f"• Scored Leads Meeting Benchmark: *{matching_leads}* (out of {total_leads} audited)\n"
             f"• Campaign ID: `{camp.id}`\n\n"
-            f"📄 CSV generated: `{filename}`\n"
-            f"Use `/showpriority A` or `/card <lead_id>` to inspect."
+            f"📄 CSV generated: `{filename}`\n\n"
+            f"👇 *Choose an Action:*\n"
+            f"• Tap *Approve All* to approve the full batch\n"
+            f"• Tap *Review 1-by-1* to inspect each lead card with AI pitch"
         )
         return {
             "status": "success",
             "reply": reply,
+            "buttons": buttons,
             "filename": filename,
             "csv_content": csv_str,
             "campaign_id": str(camp.id),
