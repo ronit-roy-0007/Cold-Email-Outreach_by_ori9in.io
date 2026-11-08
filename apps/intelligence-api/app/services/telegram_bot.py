@@ -417,28 +417,40 @@ def handle_telegram_update(
             csv_str = generate_campaign_csv(db, camp.id, min_score=bench_score, limit=qty)
             filename = f"intentlead_{niche.replace(' ', '_').lower()}_bench{bench_score}_{camp.id}.csv"
 
-            if settings.TELEGRAM_BOT_TOKEN and user_id:
-                caption = f"📄 Leads CSV: {matching_leads} leads matching Benchmark Score ≥ {bench_score}"
-                send_telegram_document(
-                    bot_token=settings.TELEGRAM_BOT_TOKEN,
-                    chat_id=user_id,
-                    file_bytes=csv_str.encode("utf-8"),
-                    filename=filename,
-                    caption=caption,
+            if matching_leads > 0:
+                if settings.TELEGRAM_BOT_TOKEN and user_id:
+                    caption = f"📄 Leads CSV: {min(matching_leads, qty)} qualified leads matching Benchmark Score ≥ {bench_score} (Ranked #1 to #{min(matching_leads, qty)})"
+                    send_telegram_document(
+                        bot_token=settings.TELEGRAM_BOT_TOKEN,
+                        chat_id=user_id,
+                        file_bytes=csv_str.encode("utf-8"),
+                        filename=filename,
+                        caption=caption,
+                    )
+
+                reply = (
+                    f"🚀 *Campaign Completed & Scored!*\n\n"
+                    f"• Target Niche: *{niche}*\n"
+                    f"• Location: *{location}*\n"
+                    f"• Services Offered: *{services_desc or 'Full Automation Suite'}*\n"
+                    f"• Benchmark Threshold: *Score ≥ {bench_score}*\n"
+                    f"• Qualified Leads Matching Benchmark: *{matching_leads}* (out of {total_leads} audited across discovery batches)\n"
+                    f"• Campaign ID: `{camp.id}`\n\n"
+                    f"📄 *Delivered CSV:* `{filename}`\n"
+                    f"Top *{min(matching_leads, qty)}* leads strictly ordered in descending intent score with rankings 1–{min(matching_leads, qty)} have been sent above!\n\n"
+                    f"Use `/showpriority A` or `/export_csv` to inspect anytime."
+                )
+            else:
+                reply = (
+                    f"⚠️ *No Leads Met Score Threshold*\n\n"
+                    f"• Target Niche: *{niche}*\n"
+                    f"• Location: *{location}*\n"
+                    f"• Benchmark Threshold: *Score ≥ {bench_score}*\n"
+                    f"• Businesses Audited: *{total_leads}*\n\n"
+                    f"None of the audited candidates reached Score ≥ {bench_score}.\n"
+                    f"💡 *Recommendation:* Send `/findleads` and set a broader benchmark score (e.g., 70 or 75)."
                 )
 
-            reply = (
-                f"🚀 *Campaign Completed & Scored!*\n\n"
-                f"• Target Niche: *{niche}*\n"
-                f"• Location: *{location}*\n"
-                f"• Services Offered: *{services_desc or 'Full Automation Suite'}*\n"
-                f"• Benchmark Threshold: *Score ≥ {bench_score}*\n"
-                f"• Qualified Leads Matching Benchmark: *{matching_leads}* (out of {total_leads} audited)\n"
-                f"• Campaign ID: `{camp.id}`\n\n"
-                f"📄 *Attached CSV:* `{filename}`\n"
-                f"Only leads scoring ≥ {bench_score} have been included in your delivery!\n"
-                f"Use `/showpriority A` or `/card <lead_id>` to inspect."
-            )
             return {
                 "status": "success",
                 "reply": reply,

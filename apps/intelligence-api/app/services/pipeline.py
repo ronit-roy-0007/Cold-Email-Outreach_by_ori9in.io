@@ -140,18 +140,20 @@ def run_campaign(
         min_score = campaign.filters.get("min_score", 0) if isinstance(campaign.filters, dict) else 0
         target_qualified = campaign.requested_quantity
         attempt = 0
-        max_attempts = 3 if campaign.provider == "live" else 1
+        max_attempts = 4 if (min_score > 0 and target_qualified > 9) else (3 if campaign.provider == "live" else 1)
 
         while attempt < max_attempts:
             attempt += 1
             depth = max(5, min(10 + (attempt - 1) * 5, 25))
             current_filters = dict(campaign.filters or {})
             current_filters["depth"] = depth
+            current_filters["attempt"] = attempt
 
+            batch_limit = target_qualified if target_qualified <= 25 else max(target_qualified * 2, 50)
             external_job_id = scraper.create_job(
                 campaign.niche,
                 campaign.location,
-                limit=max(target_qualified * 2, 50),
+                limit=batch_limit,
                 filters=current_filters,
             )
             scrape_job.external_job_id = external_job_id

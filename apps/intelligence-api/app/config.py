@@ -44,6 +44,14 @@ def resolve_database_url(settings: Settings) -> str:
                 "SQLite is not permitted when APP_ENV is not development"
             )
         print(SQLITE_WARNING, file=sys.stderr)
+        if url.startswith("sqlite:///") and not url.startswith("sqlite:///:memory:"):
+            from pathlib import Path
+            db_path_str = url[len("sqlite:///"):]
+            db_path = Path(db_path_str)
+            if not db_path.is_absolute():
+                base_dir = Path(__file__).resolve().parent.parent
+                resolved = (base_dir / db_path).resolve()
+                return f"sqlite:///{resolved.as_posix()}"
         return url
     return url
 

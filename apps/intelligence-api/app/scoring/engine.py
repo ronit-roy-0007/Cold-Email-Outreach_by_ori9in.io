@@ -109,7 +109,7 @@ def score_lead(
         w_ev_ids = _ev_ids(restricted_ev)
     elif site_inspected:
         if no_viewport_ev and not has_search_ev:
-            w_points = 16
+            w_points = 18
             w_reason = reasons.THIN_UNRESPONSIVE_SITE
             w_ev_ids = _ev_ids(no_viewport_ev, missing_search_ev)
         elif missing_search_ev and "real estate" in category.lower():
@@ -156,7 +156,7 @@ def score_lead(
             lc_points = 20
             lc_reason = reasons.NO_INQUIRY_PATH
         elif not has_form_ev and not has_booking_ev and (has_whatsapp_ev or phone or email):
-            lc_points = 12
+            lc_points = 14
             lc_reason = reasons.CONTACT_ONLY
             lc_ev_ids = _ev_ids(has_whatsapp_ev)
         elif has_form_ev or has_booking_ev:

@@ -80,31 +80,38 @@ def run_poller():
                 update_id = update["update_id"]
                 offset = update_id + 1
 
-                with SessionLocal() as db:
-                    res = handle_telegram_update(update, db, settings)
-                    logger.info("Processed update %s: status=%s", update_id, res.get("status"))
+                try:
+                    with SessionLocal() as db:
+                        res = handle_telegram_update(update, db, settings)
+                        db.commit()
+                        logger.info("Processed update %s: status=%s", update_id, res.get("status"))
 
-                    # If this was a button click (callback_query)
-                    if "callback_query" in update:
-                        cb = update["callback_query"]
-                        cb_id = cb.get("id")
-                        msg = res.get("message") or res.get("reply") or "Updated"
-                        if cb_id:
-                            answer_callback_query(token, cb_id, msg)
-                        chat_id = cb.get("message", {}).get("chat", {}).get("id")
-                        if chat_id:
-                            send_reply(token, chat_id, f"📝 {msg}")
+                        # If this was a button click (callback_query)
+                        if "callback_query" in update:
+                            cb = update["callback_query"]
+                            cb_id = cb.get("id")
+                            msg = res.get("message") or res.get("reply") or "Updated"
+                            if cb_id:
+                                answer_callback_query(token, cb_id, msg)
+                            chat_id = cb.get("message", {}).get("chat", {}).get("id")
+                            if chat_id:
+                                send_reply(token, chat_id, f"📝 {msg}")
 
-                    # If this was a text message
-                    elif "message" in update and res.get("reply"):
-                        chat_id = update["message"].get("chat", {}).get("id")
-                        if chat_id:
-                            send_reply(
-                                token,
-                                chat_id,
-                                res["reply"],
-                                buttons=res.get("buttons"),
-                            )
+                        # If this was a text message
+                        elif "message" in update and res.get("reply"):
+                            chat_id = update["message"].get("chat", {}).get("id")
+                            if chat_id:
+                                send_reply(
+                                    token,
+                                    chat_id,
+                                    res["reply"],
+                                    buttons=res.get("buttons"),
+                                )
+                except Exception as exc:
+                    logger.error("Error processing update %s: %s", update_id, exc)
+                    chat_id = update.get("message", {}).get("chat", {}).get("id")
+                    if chat_id:
+                        send_reply(token, chat_id, f"⚠️ *Error processing request:*\n`{exc}`\n\nPlease send `/findleads` to retry.")
 
         except urllib.error.URLError as err:
             logger.warning("Network warning during poll: %s", err)

@@ -22,8 +22,10 @@ def test_sqlite_rejected_when_not_development():
         resolve_database_url(s)
 
 
-def test_agency_identity_defaults_empty():
-    s = Settings()
+def test_agency_identity_defaults_empty(monkeypatch):
+    monkeypatch.delenv("AGENCY_NAME", raising=False)
+    monkeypatch.delenv("AGENCY_SENDER_NAME", raising=False)
+    s = Settings(_env_file=None)
     assert s.AGENCY_NAME == ""
     assert s.AGENCY_SENDER_NAME == ""
 

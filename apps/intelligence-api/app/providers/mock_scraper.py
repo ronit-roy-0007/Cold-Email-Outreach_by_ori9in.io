@@ -57,6 +57,9 @@ def load_fixture_businesses() -> list[dict[str, Any]]:
         return json.load(f)
 
 
+from app.providers.prospect_generator import generate_candidate_businesses
+
+
 def create_mock_job(
     query: str = "",
     location: str = "",
@@ -65,7 +68,29 @@ def create_mock_job(
 ) -> tuple[str, list[dict[str, Any]]]:
     fixtures = load_fixture_businesses()
     effective_limit = max(1, limit) if limit is not None else 25
-    results = fixtures[:effective_limit]
+
+    has_score_filter = bool(filters and isinstance(filters, dict) and filters.get("min_score", 0) > 0)
+    has_dynamic = bool(filters and isinstance(filters, dict) and filters.get("dynamic", False))
+
+    if effective_limit <= 25 and not has_score_filter and not has_dynamic:
+        results = fixtures[:effective_limit]
+    else:
+        results = list(fixtures)
+        needed = effective_limit - len(results)
+        if needed > 0:
+            seed_offset = 0
+            if filters and isinstance(filters, dict):
+                depth = filters.get("depth", 0)
+                attempt = filters.get("attempt", 0)
+                seed_offset = (attempt * 60) + (depth * 15)
+            extra = generate_candidate_businesses(
+                niche=query or "Real Estate",
+                location=location or "Dallas, Texas",
+                count=needed,
+                seed_offset=seed_offset,
+            )
+            results.extend(extra)
+
     job_id = f"mock-{uuid.uuid4()}"
     _MOCK_JOBS[job_id] = {
         "job_id": job_id,
@@ -73,7 +98,7 @@ def create_mock_job(
         "results": results,
         "query": query,
         "location": location,
-        "limit": effective_limit,
+        "limit": len(results),
     }
     return job_id, results
 
