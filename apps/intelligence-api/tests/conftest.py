@@ -2,6 +2,8 @@ import os
 
 os.environ["APP_ENV"] = "development"
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
+os.environ.pop("AGENCY_NAME", None)
+os.environ.pop("AGENCY_SENDER_NAME", None)
 
 import pytest
 from sqlalchemy import create_engine

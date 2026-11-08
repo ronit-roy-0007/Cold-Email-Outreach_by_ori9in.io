@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     USER_LLM_API_KEY: str = ""
     USER_LLM_BASE_URL: str = ""
     USER_LLM_MODEL: str = ""
+    TELEGRAM_BOT_TOKEN: str = ""
+    TELEGRAM_ALLOWED_USER_ID: str = ""
+    N8N_WEBHOOK_URL: str = ""
 
 
 def resolve_database_url(settings: Settings) -> str:

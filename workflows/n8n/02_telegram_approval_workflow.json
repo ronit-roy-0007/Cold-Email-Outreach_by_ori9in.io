@@ -1,0 +1,156 @@
+{
+  "name": "IntentLead - 02 Telegram Approval Cards",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 30
+            }
+          ]
+        }
+      },
+      "id": "poll-approvals-schedule",
+      "name": "Check Scored Leads Every 30m",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        250,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "http://localhost:8000/api/orchestrator/pending-approvals",
+        "options": {}
+      },
+      "id": "http-get-pending",
+      "name": "Fetch Scored Leads Pending Review",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        480,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "={{ $json.card_markdown }}",
+        "additionalFields": {
+          "parse_mode": "Markdown",
+          "reply_markup": "={\n  \"inline_keyboard\": [\n    [\n      {\"text\": \"✅ Approve\", \"callback_data\": \"approve:\" + $json.lead_id},\n      {\"text\": \"⏭️ Skip\", \"callback_data\": \"skip:\" + $json.lead_id},\n      {\"text\": \"❌ Reject\", \"callback_data\": \"reject:\" + $json.lead_id}\n    ]\n  ]\n}"
+        }
+      },
+      "id": "telegram-send-card",
+      "name": "Send Interactive Approval Card",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [
+        720,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "updates": [
+          "callback_query"
+        ]
+      },
+      "id": "telegram-callback-trigger",
+      "name": "On Approval Button Click",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1,
+      "position": [
+        250,
+        550
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://localhost:8000/api/orchestrator/approvals/" + $json.callback_query.data.split(':')[1],
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={\n  \"action\": \"{{ $json.callback_query.data.split(':')[0] }}\",\n  \"user_id\": \"{{ $json.callback_query.from.id }}\"\n}",
+        "options": {}
+      },
+      "id": "http-submit-approval",
+      "name": "Persist Operator Decision in IntentLead",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        550,
+        550
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "answerCallbackQuery",
+        "callbackQueryId": "={{ $json.callback_query.id }}",
+        "text": "=Decision recorded: {{ $json.callback_query.data.split(':')[0] }}",
+        "options": {}
+      },
+      "id": "telegram-ack-callback",
+      "name": "Acknowledge Button Click in Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [
+        820,
+        550
+      ]
+    }
+  ],
+  "connections": {
+    "Check Scored Leads Every 30m": {
+      "main": [
+        [
+          {
+            "node": "Fetch Scored Leads Pending Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Scored Leads Pending Review": {
+      "main": [
+        [
+          {
+            "node": "Send Interactive Approval Card",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "On Approval Button Click": {
+      "main": [
+        [
+          {
+            "node": "Persist Operator Decision in IntentLead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Persist Operator Decision in IntentLead": {
+      "main": [
+        [
+          {
+            "node": "Acknowledge Button Click in Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

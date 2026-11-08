@@ -1,0 +1,82 @@
+{
+  "name": "IntentLead - 03 Google Sheets CRM Sync",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "sync-approved-lead",
+        "options": {}
+      },
+      "id": "webhook-sync-trigger",
+      "name": "Lead Approved Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        250,
+        300
+      ],
+      "webhookId": "intentlead-sheets-sync"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=http://localhost:8000/api/leads/" + $json.body.lead_id,
+        "options": {}
+      },
+      "id": "http-fetch-lead-details",
+      "name": "Get Complete Lead Details",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        500,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "sheetId": "={{ $env.GOOGLE_SHEET_ID }}",
+        "range": "Leads!A:K",
+        "dataMode": "autoMapInputData",
+        "options": {
+          "columnToMatchOn": "Lead ID"
+        }
+      },
+      "id": "sheets-upsert",
+      "name": "Upsert Row in Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.3,
+      "position": [
+        780,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Lead Approved Webhook": {
+      "main": [
+        [
+          {
+            "node": "Get Complete Lead Details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Complete Lead Details": {
+      "main": [
+        [
+          {
+            "node": "Upsert Row in Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

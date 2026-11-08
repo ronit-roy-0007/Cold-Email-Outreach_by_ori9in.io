@@ -1,0 +1,117 @@
+{
+  "name": "IntentLead - 01 Discovery Campaign Trigger",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "triggerAtHour": 9
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Weekly Schedule (Mon 9AM)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        250,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "trigger-discovery",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Manual Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        250,
+        500
+      ],
+      "webhookId": "intentlead-discovery-hook"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:8000/api/orchestrator/campaign-run",
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={\n  \"niche\": \"{{ $json.body?.niche || 'Real Estate Agencies' }}\",\n  \"location\": \"{{ $json.body?.location || 'Dallas, Texas' }}\",\n  \"requested_quantity\": {{ $json.body?.quantity || 15 }},\n  \"target_services\": [\"website_development\", \"website_redesign\", \"real_estate_listing_portal\", \"ai_chatbot\"],\n  \"filters\": {}\n}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "http-run-campaign",
+      "name": "Trigger IntentLead Intelligence Pipeline",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        550,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "=🚀 *IntentLead Discovery Run Finished*\n\nCampaign ID: `{{ $json.campaign_id }}`\nNiche: *{{ $json.niche }}* ({{ $json.location }})\nStatus: *{{ $json.status }}*\nLeads Scored & Audited: *{{ $json.leads_scored }}*\n\nInspect leads on dashboard: http://localhost:8000/campaigns/{{ $json.campaign_id }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "telegram-notify",
+      "name": "Notify Operator on Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [
+        850,
+        400
+      ]
+    }
+  ],
+  "connections": {
+    "Weekly Schedule (Mon 9AM)": {
+      "main": [
+        [
+          {
+            "node": "Trigger IntentLead Intelligence Pipeline",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Trigger IntentLead Intelligence Pipeline",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Trigger IntentLead Intelligence Pipeline": {
+      "main": [
+        [
+          {
+            "node": "Notify Operator on Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
