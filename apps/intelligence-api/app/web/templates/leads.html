@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+
+{% block title %}Leads — {{ campaign.niche }} in {{ campaign.location }}{% endblock %}
+
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+  <div>
+    <h2>{{ campaign.niche }}</h2>
+    <span style="color: var(--muted);">{{ campaign.location }} &bull; Provider: {{ campaign.provider }} &bull; Status: {{ campaign.status }}</span>
+  </div>
+  <div>
+    <a href="/campaigns/{{ campaign.id }}/export.csv" class="btn" style="background: #334155; color: #fff; margin-right: 0.5rem;">Download CSV</a>
+    <a href="/campaigns/new" class="btn">+ New Campaign</a>
+  </div>
+</div>
+
+{% if not leads %}
+<div class="card" style="text-align: center; padding: 3rem;">
+  <p style="color: var(--muted);">No leads scored for this campaign yet.</p>
+</div>
+{% else %}
+<div class="card">
+  <table>
+    <thead>
+      <tr>
+        <th>Business Name</th>
+        <th>Category / Locality</th>
+        <th>Score</th>
+        <th>Priority</th>
+        <th>Confidence</th>
+        <th>Recommended Service</th>
+        <th>Source</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for l, b in leads %}
+      <tr>
+        <td>
+          <strong>{{ b.name }}</strong><br>
+          {% if b.website %}<a href="{{ b.website }}" target="_blank" style="color: var(--primary); font-size: 0.8rem;">{{ b.website }}</a>{% endif %}
+        </td>
+        <td>
+          {{ b.category or 'N/A' }}<br>
+          <span style="color: var(--muted); font-size: 0.85rem;">{{ b.locality or '' }}</span>
+        </td>
+        <td><strong>{{ l.overall_score }}</strong> / 100</td>
+        <td>
+          <span class="badge badge-{{ l.priority.lower() }}">{{ l.priority }}</span>
+        </td>
+        <td>
+          <span class="badge" style="background: #334155; color: #cbd5e1;">{{ l.confidence }}</span>
+        </td>
+        <td>
+          {% if l.recommended_service %}
+          <span style="color: #38bdf8;">{{ l.recommended_service.replace('_', ' ') }}</span>
+          {% else %}
+          <span style="color: var(--muted);">None (&lt; 40)</span>
+          {% endif %}
+        </td>
+        <td><span class="badge" style="background: #1e293b; border: 1px solid var(--border);">{{ b.discovery_source }}</span></td>
+        <td>
+          <a href="/leads/{{ l.id }}" class="btn" style="padding: 0.3rem 0.6rem; font-size: 0.85rem;">Details & Draft</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

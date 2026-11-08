@@ -1,0 +1,39 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: intentlead-db
+    environment:
+      POSTGRES_USER: intentlead
+      POSTGRES_PASSWORD: change-me
+      POSTGRES_DB: intentlead
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U intentlead -d intentlead"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./apps/intelligence-api
+      dockerfile: Dockerfile
+    container_name: intentlead-api
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      APP_ENV: production
+      DATABASE_URL: postgresql://intentlead:change-me@db:5432/intentlead
+      DISCOVERY_PROVIDER: mock
+      GOOGLE_MAPS_SCRAPER_BASE_URL: http://scraper:8080
+      OUTREACH_DRY_RUN: "true"
+      AGENCY_NAME: ""
+      AGENCY_SENDER_NAME: ""
+    ports:
+      - "8000:8000"
+
+volumes:
+  postgres_data:

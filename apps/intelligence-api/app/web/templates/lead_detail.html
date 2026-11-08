@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+
+{% block title %}{{ business.name }} — Lead Details{% endblock %}
+
+{% block content %}
+<div style="margin-bottom: 1.5rem;">
+  <a href="/campaigns/{{ lead.campaign_id }}" style="color: var(--primary); text-decoration: none;">&larr; Back to Campaign Leads</a>
+</div>
+
+<div style="display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem;">
+  <div>
+    <!-- Business Info -->
+    <div class="card">
+      <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+        <div>
+          <h2>{{ business.name }}</h2>
+          <p style="color: var(--muted); margin: 0.2rem 0;">{{ business.category }} &bull; {{ business.address or business.locality }}</p>
+          {% if business.website %}
+          <p style="margin: 0.2rem 0;"><a href="{{ business.website }}" target="_blank" style="color: var(--primary);">{{ business.website }}</a></p>
+          {% else %}
+          <p style="margin: 0.2rem 0; color: #f59e0b;">No website listed on discovery source</p>
+          {% endif %}
+          <p style="margin: 0.2rem 0; color: var(--muted); font-size: 0.9rem;">
+            Phone: {{ business.phone or 'None' }} &bull; Email: {{ business.email or 'None' }} &bull; Source: <span class="badge" style="background: #334155;">{{ business.discovery_source }}</span>
+          </p>
+        </div>
+        <div style="text-align: right;">
+          <div style="font-size: 2.2rem; font-weight: 700; color: var(--primary);">{{ lead.overall_score }}<span style="font-size: 1rem; color: var(--muted);">/100</span></div>
+          <div>Priority: <span class="badge badge-{{ lead.priority.lower() }}">{{ lead.priority }}</span> &bull; Confidence: <span class="badge" style="background: #334155;">{{ lead.confidence }}</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Outreach Draft Preview -->
+    <div class="card">
+      <h3>Outreach Draft (Dry-Run Preview)</h3>
+      <p style="color: var(--muted); font-size: 0.85rem; margin-top: -0.5rem; margin-bottom: 1rem;">
+        Status: <strong style="color: #38bdf8;">{{ draft.status if draft else 'None' }}</strong> &bull; Channel: <strong>{{ draft.channel if draft else 'None' }}</strong>
+      </p>
+
+      {% if draft and draft.body %}
+      <pre>{{ draft.body }}</pre>
+      <p style="color: var(--muted); font-size: 0.8rem; margin-top: 0.5rem;">
+        Cites Evidence IDs: {{ draft.evidence_ids }}
+      </p>
+      {% elif draft and draft.not_recommended_reason %}
+      <div style="background: #33200a; border: 1px solid #78350f; padding: 1rem; border-radius: 6px; color: #fef3c7;">
+        Draft not recommended: <strong>{{ draft.not_recommended_reason }}</strong>
+      </div>
+      {% else %}
+      <p style="color: var(--muted);">No draft available.</p>
+      {% endif %}
+    </div>
+
+    <!-- Evidence Records -->
+    <div class="card">
+      <h3>Evidence Records ({{ evidence|length }})</h3>
+      {% if not evidence %}
+      <p style="color: var(--muted);">No website evidence collected (uninspected or no website).</p>
+      {% else %}
+      <table>
+        <thead>
+          <tr>
+            <th>Claim</th>
+            <th>Type</th>
+            <th>Scope</th>
+            <th>Confidence</th>
+            <th>Caveat</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for e in evidence %}
+          <tr>
+            <td>
+              <strong>{{ e.claim }}</strong><br>
+              {% if e.source_url %}<span style="color: var(--muted); font-size: 0.75rem;">{{ e.source_url }}</span>{% endif %}
+            </td>
+            <td><span class="badge" style="background: #1e293b; border: 1px solid var(--border);">{{ e.evidence_type }}</span></td>
+            <td style="color: var(--muted); font-size: 0.85rem;">{{ e.inspected_scope or 'N/A' }}</td>
+            <td><span class="badge" style="background: #334155;">{{ e.confidence }}</span></td>
+            <td style="color: #f59e0b; font-size: 0.8rem;">{{ e.caveat or '' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+    </div>
+  </div>
+
+  <div>
+    <!-- Dimension Breakdown -->
+    <div class="card">
+      <h3>Dimension Scores</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Dimension</th>
+            <th>Points</th>
+            <th>Reason</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for d in dimensions %}
+          <tr>
+            <td>{{ d.dimension.replace('_', ' ') }}</td>
+            <td><strong>{{ d.points }}</strong> / {{ d.max_points }}</td>
+            <td style="font-size: 0.8rem; color: var(--muted);">{{ d.reason_code }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Service Fit Scores -->
+    <div class="card">
+      <h3>Service-Fit Scores</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Service</th>
+            <th>Score</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in service_scores %}
+          <tr>
+            <td>
+              {{ s.service.replace('_', ' ') }}
+              {% if lead.recommended_service == s.service %}
+              <br><span class="badge" style="background: #065f46; color: #a7f3d0; font-size: 0.7rem;">Recommended</span>
+              {% endif %}
+            </td>
+            <td><strong>{{ s.points }}</strong> / 100</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

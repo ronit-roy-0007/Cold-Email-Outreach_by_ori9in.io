@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% block title %}New Campaign — IntentLead AI{% endblock %}
+
+{% block content %}
+<div class="card" style="max-width: 600px; margin: 0 auto;">
+  <h2>Create Discovery Campaign</h2>
+  <form method="POST" action="/campaigns/new">
+    <div style="margin-bottom: 1rem;">
+      <label style="display: block; margin-bottom: 0.3rem; color: var(--muted);">Target Niche</label>
+      <input type="text" name="niche" value="Real Estate Agencies" required style="width: 100%; padding: 0.5rem; border-radius: 4px; border: 1px solid var(--border); background: #0f172a; color: #fff;">
+    </div>
+
+    <div style="margin-bottom: 1rem;">
+      <label style="display: block; margin-bottom: 0.3rem; color: var(--muted);">Location</label>
+      <input type="text" name="location" value="Dallas, Texas" required style="width: 100%; padding: 0.5rem; border-radius: 4px; border: 1px solid var(--border); background: #0f172a; color: #fff;">
+    </div>
+
+    <div style="margin-bottom: 1rem;">
+      <label style="display: block; margin-bottom: 0.3rem; color: var(--muted);">Requested Quantity (Max 25 for MVP)</label>
+      <input type="number" name="requested_quantity" min="1" max="25" value="10" required style="width: 100%; padding: 0.5rem; border-radius: 4px; border: 1px solid var(--border); background: #0f172a; color: #fff;">
+    </div>
+
+    <div style="margin-bottom: 1rem;">
+      <label style="display: block; margin-bottom: 0.3rem; color: var(--muted);">Discovery Provider</label>
+      <select name="provider" style="width: 100%; padding: 0.5rem; border-radius: 4px; border: 1px solid var(--border); background: #0f172a; color: #fff;">
+        <option value="mock" selected>Mock Scraper (offline fixtures)</option>
+        <option value="live">Live Google Maps Scraper (gosom)</option>
+        <option value="import">Import (manual CSV/JSON)</option>
+      </select>
+    </div>
+
+    <div style="margin-bottom: 1.5rem;">
+      <label style="display: block; margin-bottom: 0.5rem; color: var(--muted);">Target Services</label>
+      <div style="display: grid; grid-template-columns: 1fr; gap: 0.5rem;">
+        <label><input type="checkbox" name="target_services" value="website_development" checked> Website Development</label>
+        <label><input type="checkbox" name="target_services" value="website_redesign" checked> Website Redesign</label>
+        <label><input type="checkbox" name="target_services" value="real_estate_listing_portal" checked> Real Estate Listing Portal</label>
+        <label><input type="checkbox" name="target_services" value="ai_chatbot" checked> AI Chatbot</label>
+        <label><input type="checkbox" name="target_services" value="business_process_automation" checked> Business Process Automation</label>
+        <label><input type="checkbox" name="target_services" value="lead_management_followup" checked> Lead Management & Follow-up</label>
+        <label><input type="checkbox" name="target_services" value="crm_appointment_automation" checked> CRM Appointment Automation</label>
+      </div>
+    </div>
+
+    <button type="submit" class="btn" style="width: 100%;">Launch Campaign</button>
+  </form>
+</div>
+{% endblock %}
