@@ -193,3 +193,23 @@ def test_reviews_process_friction():
 
     svc_map = {s.service: s for s in res.service_scores}
     assert svc_map["business_process_automation"].points == 40
+
+
+def test_low_rating_or_review_count_awards_automation_points():
+    listing = {
+        "title": "Mayfair Estate Agents",
+        "category": "Real estate agency",
+        "address": "15 Berkeley Square",
+        "locality": "London",
+        "website": "https://fixtures.intentlead.test/brochure",
+        "phone": "+44 20 7946 0101",
+        "listing_status": "open",
+        "rating": 3.9,
+        "review_count": 8,
+    }
+    evidence = []
+    res = score_lead(listing, evidence)
+    dim_map = {d.dimension: d for d in res.dimensions}
+    assert dim_map["automation_opportunity"].points == 16
+    assert dim_map["automation_opportunity"].reason_code == reasons.PUBLIC_PROCESS_FRICTION
+

@@ -93,3 +93,22 @@ def test_never_sent_status():
         service_scores=[],
     )
     assert r.status in {"preview", "draft_not_recommended"}
+
+
+def test_draft_includes_rating_and_review_count_pitch():
+    r = build_draft(
+        agency_name="ori9in.io",
+        sender_name="Roy",
+        business_name="London Premier Properties",
+        recommended_service="lead_management_followup",
+        evidence=[],
+        service_scores=[],
+        rating=3.9,
+        review_count=12,
+    )
+    assert r.status == "preview"
+    assert "3.9★" in r.body
+    assert "12 reviews" in r.body
+    assert "review system" in r.body.lower()
+    assert "online presence and inbound sales" in r.body.lower()
+

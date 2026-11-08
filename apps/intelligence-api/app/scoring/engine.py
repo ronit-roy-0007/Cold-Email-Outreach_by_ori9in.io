@@ -183,7 +183,7 @@ def score_lead(
     auto_reason = reasons.UNKNOWN_NOT_INSPECTED
     auto_ev_ids: list[str] = []
 
-    # Check reviews friction
+    # Check reviews friction and online reputation gaps (low rating or low review count)
     friction_keywords = ("slow", "call back", "closed early", "outdated", "friction", "hard to reach", "late")
     friction_count = 0
     if isinstance(reviews, list):
@@ -192,7 +192,28 @@ def score_lead(
             if any(k in r_str for k in friction_keywords):
                 friction_count += 1
 
-    if friction_count >= 2:
+    rating = _get_attr(listing_facts, "rating")
+    if rating is None and isinstance(source_fields, dict):
+        rating = source_fields.get("rating")
+    review_count = _get_attr(listing_facts, "review_count")
+    if review_count is None and isinstance(source_fields, dict):
+        review_count = source_fields.get("review_count")
+
+    reputation_gap = False
+    if rating is not None:
+        try:
+            if float(rating) < 4.2:
+                reputation_gap = True
+        except (ValueError, TypeError):
+            pass
+    if review_count is not None and not reputation_gap and rating is not None:
+        try:
+            if 0 < int(review_count) < 25:
+                reputation_gap = True
+        except (ValueError, TypeError):
+            pass
+
+    if friction_count >= 2 or reputation_gap:
         auto_points = 16
         auto_reason = reasons.PUBLIC_PROCESS_FRICTION
     elif not site_inspected:

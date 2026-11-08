@@ -80,6 +80,8 @@ def process_listings(
             recommended_service=score_res.recommended_service,
             evidence=evidence_list,
             service_scores=score_res.service_scores,
+            rating=biz.rating,
+            review_count=biz.review_count,
         )
 
         session.add(

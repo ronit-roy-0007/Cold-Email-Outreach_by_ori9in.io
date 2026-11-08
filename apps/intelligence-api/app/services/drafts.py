@@ -34,6 +34,8 @@ def build_draft(
     recommended_service: str | None,
     evidence: list[Evidence],
     service_scores: list[ServiceScoreResult | dict[str, Any]],
+    rating: float | None = None,
+    review_count: int | None = None,
 ) -> DraftResult:
     agency = agency_name.strip() if agency_name else ""
     sender = sender_name.strip() if sender_name else ""
@@ -117,15 +119,39 @@ def build_draft(
 
     svc_display = SERVICE_DISPLAY_NAMES.get(recommended_service, recommended_service.replace("_", " "))
 
-    body = (
-        f"Hi {business_name},\n\n"
-        f"I am {sender} with {agency}. I reviewed your public business presence and noticed "
-        f"{observation}. If helpful, we can discuss {svc_display}. "
-        f"Happy to share a brief outline — no need to reply if this is not relevant.\n\n"
-        f"Best,\n"
-        f"{sender}\n"
-        f"{agency}"
-    )
+    reputation_note = ""
+    if rating is not None and rating < 4.4:
+        reputation_note = (
+            f" We also noticed {business_name} currently has a {rating:.1f}★ rating "
+            f"({review_count or 0} reviews) on Google Maps — our automated post-service review system "
+            f"helps turn satisfied customers into 5-star reviews on autopilot, boosting your online presence and inbound sales."
+        )
+    elif review_count is not None and review_count < 25:
+        reputation_note = (
+            f" We also noticed you currently have {review_count} Google reviews — "
+            f"our automated follow-up system helps rapidly build authentic 5-star reviews to elevate your search ranking and convert more visitors."
+        )
+
+    if reputation_note:
+        body = (
+            f"Hi {business_name},\n\n"
+            f"I am {sender} with {agency}. I reviewed your public business presence and noticed "
+            f"{observation}.{reputation_note} If helpful, we can discuss {svc_display}. "
+            f"Happy to share a brief outline — no need to reply if this is not relevant.\n\n"
+            f"Best,\n"
+            f"{sender}\n"
+            f"{agency}"
+        )
+    else:
+        body = (
+            f"Hi {business_name},\n\n"
+            f"I am {sender} with {agency}. I reviewed your public business presence and noticed "
+            f"{observation}. If helpful, we can discuss {svc_display}. "
+            f"Happy to share a brief outline — no need to reply if this is not relevant.\n\n"
+            f"Best,\n"
+            f"{sender}\n"
+            f"{agency}"
+        )
 
     return DraftResult(
         status="preview",
