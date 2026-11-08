@@ -2,8 +2,9 @@ import os
 
 os.environ["APP_ENV"] = "development"
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
-os.environ.pop("AGENCY_NAME", None)
-os.environ.pop("AGENCY_SENDER_NAME", None)
+os.environ["AGENCY_NAME"] = ""
+os.environ["AGENCY_SENDER_NAME"] = ""
+os.environ["DISCOVERY_PROVIDER"] = "mock"
 
 import pytest
 from sqlalchemy import create_engine

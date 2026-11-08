@@ -148,3 +148,53 @@ def test_export_csv_command(client, db_session, auth_settings):
     assert data["status"] == "success"
     assert "csv_content" in data
     assert "name,location,overall_score" in data["csv_content"]
+
+
+def test_interactive_wizard_flow(client, db_session):
+    user_id = 123456789
+
+    # Step 1: Send /findleads to start wizard
+    r1 = client.post("/api/orchestrator/webhooks/telegram", json={
+        "message": {"from": {"id": user_id}, "text": "/findleads"}
+    })
+    assert r1.status_code == 200
+    assert "Step 1/5" in r1.json()["reply"]
+
+    # Step 2: Provide niche
+    r2 = client.post("/api/orchestrator/webhooks/telegram", json={
+        "message": {"from": {"id": user_id}, "text": "Real Estate"}
+    })
+    assert r2.status_code == 200
+    assert "Step 2/5" in r2.json()["reply"]
+
+    # Step 3: Provide location
+    r3 = client.post("/api/orchestrator/webhooks/telegram", json={
+        "message": {"from": {"id": user_id}, "text": "Dallas, Texas"}
+    })
+    assert r3.status_code == 200
+    assert "Step 3/5" in r3.json()["reply"]
+
+    # Step 4: Provide services
+    r4 = client.post("/api/orchestrator/webhooks/telegram", json={
+        "message": {"from": {"id": user_id}, "text": "automation system for business (ad managing, leads handling and follow ups and website providing)"}
+    })
+    assert r4.status_code == 200
+    assert "Step 4/5" in r4.json()["reply"]
+
+    # Step 5: Provide quantity
+    r5 = client.post("/api/orchestrator/webhooks/telegram", json={
+        "message": {"from": {"id": user_id}, "text": "10"}
+    })
+    assert r5.status_code == 200
+    assert "Step 5/5" in r5.json()["reply"]
+
+    # Step 6: Provide benchmark score
+    r6 = client.post("/api/orchestrator/webhooks/telegram", json={
+        "message": {"from": {"id": user_id}, "text": "50"}
+    })
+    assert r6.status_code == 200
+    res_data = r6.json()
+    assert "Campaign Completed & Scored" in res_data["reply"]
+    assert "csv_content" in res_data
+    assert "benchmark_met" in res_data["csv_content"]
+

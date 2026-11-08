@@ -56,14 +56,16 @@ def format_approval_card(
     return card_text, buttons
 
 
-def generate_campaign_csv(db: Session, campaign_id: uuid.UUID) -> str:
-    leads = (
+def generate_campaign_csv(db: Session, campaign_id: uuid.UUID, min_score: int = 0) -> str:
+    query = (
         db.query(Lead, Business)
         .join(Business, Lead.business_id == Business.id)
         .filter(Lead.campaign_id == campaign_id)
-        .order_by(Lead.overall_score.desc())
-        .all()
     )
+    if min_score > 0:
+        query = query.filter(Lead.overall_score >= min_score)
+
+    leads = query.order_by(Lead.overall_score.desc()).all()
 
     output = io.StringIO()
     writer = csv.writer(output)
@@ -71,6 +73,7 @@ def generate_campaign_csv(db: Session, campaign_id: uuid.UUID) -> str:
         "name",
         "location",
         "overall_score",
+        "benchmark_met",
         "priority",
         "confidence",
         "recommended_service",
@@ -89,6 +92,7 @@ def generate_campaign_csv(db: Session, campaign_id: uuid.UUID) -> str:
             biz.name,
             biz.locality or biz.address or "",
             lead.overall_score,
+            f"Yes (>={min_score})" if min_score > 0 else "All",
             lead.priority,
             lead.confidence,
             lead.recommended_service or "",
@@ -182,6 +186,43 @@ def record_approval(
     }
 
 
+ALL_SERVICES = [
+    "website_development",
+    "website_redesign",
+    "real_estate_listing_portal",
+    "ai_chatbot",
+    "business_process_automation",
+    "lead_management_followup",
+    "crm_appointment_automation",
+]
+
+
+# In-memory wizard sessions for multi-step interactive setup
+_USER_WIZARD_SESSIONS: dict[str, dict[str, Any]] = {}
+
+
+def map_service_keywords(services_str: str) -> list[str]:
+    if not services_str.strip():
+        return list(ALL_SERVICES)
+    selected = set()
+    s = services_str.lower()
+    if any(k in s for k in ("chat", "ai", "bot", "assistant")):
+        selected.add("ai_chatbot")
+    if any(k in s for k in ("crm", "book", "appoint", "calendar", "schedul")):
+        selected.add("crm_appointment_automation")
+    if any(k in s for k in ("follow", "lead", "capture", "handling", "ad", "marketing")):
+        selected.add("lead_management_followup")
+    if any(k in s for k in ("process", "work", "flow", "auto", "system")):
+        selected.add("business_process_automation")
+    if any(k in s for k in ("portal", "list", "propert", "estate")):
+        selected.add("real_estate_listing_portal")
+    if any(k in s for k in ("redesign", "mobile", "responsiv", "speed")):
+        selected.add("website_redesign")
+    if any(k in s for k in ("web", "site", "dev", "provid", "page")):
+        selected.add("website_development")
+    return list(selected) if selected else list(ALL_SERVICES)
+
+
 def handle_telegram_update(
     update: dict[str, Any],
     db: Session,
@@ -219,19 +260,153 @@ def handle_telegram_update(
     # 2. Handle Text Messages & Commands
     msg = update.get("message", {})
     text = msg.get("text", "").strip()
+    user_key = str(user_id)
 
     if not text:
         return {"status": "empty", "message": "No text in message"}
 
+    if text in ("/cancel", "/reset"):
+        if user_key in _USER_WIZARD_SESSIONS:
+            _USER_WIZARD_SESSIONS.pop(user_key, None)
+            return {
+                "status": "cancelled",
+                "reply": "❌ Campaign setup cancelled. Send `/findleads` whenever you are ready!",
+            }
+        return {"status": "cancelled", "reply": "No active campaign setup in progress."}
+
+    # Handle Active Multi-Step Wizard Session
+    if user_key in _USER_WIZARD_SESSIONS and not text.startswith("/"):
+        session_data = _USER_WIZARD_SESSIONS[user_key]
+        step = session_data.get("step")
+
+        if step == "awaiting_niche":
+            session_data["niche"] = text.strip()
+            session_data["step"] = "awaiting_location"
+            reply = (
+                f"✅ Target Niche: *{session_data['niche']}*\n\n"
+                f"📍 *Step 2/5: Target Location*\n"
+                f"Which city, region, or country do you want to prospect?\n"
+                f"_(e.g., Dallas, Texas | London, UK | Miami, FL | Nationwide)_"
+            )
+            return {"status": "in_progress", "reply": reply}
+
+        elif step == "awaiting_location":
+            session_data["location"] = text.strip()
+            session_data["step"] = "awaiting_services"
+            reply = (
+                f"✅ Location: *{session_data['location']}*\n\n"
+                f"💼 *Step 3/5: Services You Offer*\n"
+                f"What services or solutions do you offer as a business/freelancer?\n"
+                f"_(e.g., automation system for business: ad managing, leads handling and follow ups, website providing)_"
+            )
+            return {"status": "in_progress", "reply": reply}
+
+        elif step == "awaiting_services":
+            session_data["services"] = text.strip()
+            session_data["step"] = "awaiting_quantity"
+            reply = (
+                f"✅ Services recorded!\n\n"
+                f"📊 *Step 4/5: Quantity of Leads*\n"
+                f"How many leads would you like to discover?\n"
+                f"_(e.g., 10, 25, 50, 100)_"
+            )
+            return {"status": "in_progress", "reply": reply}
+
+        elif step == "awaiting_quantity":
+            try:
+                qty_val = int(re.sub(r"[^\d]", "", text) or "50")
+            except ValueError:
+                qty_val = 50
+            session_data["quantity"] = max(1, min(qty_val, 100))
+            session_data["step"] = "awaiting_benchmark"
+            reply = (
+                f"✅ Target quantity: *{session_data['quantity']} leads*\n\n"
+                f"⭐ *Step 5/5: Benchmark Qualification Score (0–100)*\n"
+                f"What is your minimum qualification score? Only leads scoring at or above this threshold will be exported in your CSV!\n"
+                f"_(e.g., 80 for high-intent priority only, 70 for good fit, 50 for broad net)_"
+            )
+            return {"status": "in_progress", "reply": reply}
+
+        elif step == "awaiting_benchmark":
+            try:
+                score_val = int(re.sub(r"[^\d]", "", text) or "80")
+            except ValueError:
+                score_val = 80
+            bench_score = max(0, min(score_val, 100))
+
+            niche = session_data.get("niche", "Real Estate")
+            location = session_data.get("location", "Dallas, Texas")
+            services_desc = session_data.get("services", "")
+            qty = session_data.get("quantity", 50)
+
+            _USER_WIZARD_SESSIONS.pop(user_key, None)
+            target_services = map_service_keywords(services_desc)
+
+            payload = {
+                "niche": niche,
+                "location": location,
+                "requested_quantity": qty,
+                "max_limit": 100,
+                "target_services": target_services,
+                "filters": {"min_score": bench_score, "services_desc": services_desc},
+                "provider": settings.DISCOVERY_PROVIDER,
+            }
+
+            camp = create_campaign(db, payload, settings)
+            run_campaign(db, camp.id, settings)
+
+            total_leads = db.query(Lead).filter_by(campaign_id=camp.id).count()
+            matching_leads = (
+                db.query(Lead)
+                .filter(Lead.campaign_id == camp.id, Lead.overall_score >= bench_score)
+                .count()
+            )
+
+            csv_str = generate_campaign_csv(db, camp.id, min_score=bench_score)
+            filename = f"intentlead_{niche.replace(' ', '_').lower()}_bench{bench_score}_{camp.id}.csv"
+
+            if settings.TELEGRAM_BOT_TOKEN and user_id:
+                caption = f"📄 Leads CSV: {matching_leads} leads matching Benchmark Score ≥ {bench_score}"
+                send_telegram_document(
+                    bot_token=settings.TELEGRAM_BOT_TOKEN,
+                    chat_id=user_id,
+                    file_bytes=csv_str.encode("utf-8"),
+                    filename=filename,
+                    caption=caption,
+                )
+
+            reply = (
+                f"🚀 *Campaign Completed & Scored!*\n\n"
+                f"• Target Niche: *{niche}*\n"
+                f"• Location: *{location}*\n"
+                f"• Services Offered: *{services_desc or 'Full Automation Suite'}*\n"
+                f"• Benchmark Threshold: *Score ≥ {bench_score}*\n"
+                f"• Qualified Leads Matching Benchmark: *{matching_leads}* (out of {total_leads} audited)\n"
+                f"• Campaign ID: `{camp.id}`\n\n"
+                f"📄 *Attached CSV:* `{filename}`\n"
+                f"Only leads scoring ≥ {bench_score} have been included in your delivery!\n"
+                f"Use `/showpriority A` or `/card <lead_id>` to inspect."
+            )
+            return {
+                "status": "success",
+                "reply": reply,
+                "filename": filename,
+                "csv_content": csv_str,
+                "campaign_id": str(camp.id),
+                "matching_leads": matching_leads,
+            }
+
     if text in ("/start", "/help"):
         help_text = (
-            "🤖 *IntentLead AI Operator Bot*\n\n"
+            "🤖 *IntentLead AI Universal Operator Bot*\n\n"
             "Commands:\n"
-            "• `/findleads <niche> in <location> [qty]` — Start discovery campaign\n"
+            "• `/findleads` — Start interactive 5-step campaign wizard\n"
+            "• `/findleads <niche> in <location> [qty] [bench_score]` — Quick discovery command\n"
+            "• `/cancel` — Cancel active campaign questionnaire\n"
             "• `/status` — View recent campaigns status\n"
             "• `/showpriority <A|B|C|D>` — List leads by priority band\n"
             "• `/card <lead_id>` — Show interactive approval card\n"
-            "• `/export_csv [campaign_id]` — Export leads CSV directly to chat\n"
+            "• `/export_csv [campaign_id] [bench_score]` — Export leads CSV directly to chat\n"
         )
         return {"status": "success", "reply": help_text}
 
@@ -282,20 +457,27 @@ def handle_telegram_update(
             return {"status": "error", "reply": "Invalid lead UUID format"}
 
     if text.startswith("/export_csv"):
-        parts = text.split(maxsplit=1)
+        parts = text.split()
         camp: Campaign | None = None
+        min_score = 0
         if len(parts) > 1:
             try:
                 camp = db.get(Campaign, uuid.UUID(parts[1].strip()))
             except ValueError:
-                return {"status": "error", "reply": "Invalid campaign UUID format"}
-        else:
+                camp = None
+            if len(parts) > 2:
+                try:
+                    min_score = int(parts[2].strip())
+                except ValueError:
+                    min_score = 0
+
+        if not camp:
             camp = db.query(Campaign).order_by(Campaign.created_at.desc()).first()
 
         if not camp:
             return {"status": "error", "reply": "No campaign found to export."}
 
-        csv_str = generate_campaign_csv(db, camp.id)
+        csv_str = generate_campaign_csv(db, camp.id, min_score=min_score)
         filename = f"intentlead_{camp.niche.replace(' ', '_').lower()}_{camp.id}.csv"
 
         if settings.TELEGRAM_BOT_TOKEN and user_id:
@@ -304,7 +486,7 @@ def handle_telegram_update(
                 chat_id=user_id,
                 file_bytes=csv_str.encode("utf-8"),
                 filename=filename,
-                caption=f"📄 Leads CSV for {camp.niche} in {camp.location}",
+                caption=f"📄 Leads CSV for {camp.niche} in {camp.location} (Min Score: {min_score})",
             )
 
         reply = f"✅ Exported CSV for *{camp.niche}* ({camp.location}).\nCampaign ID: `{camp.id}`"
@@ -316,51 +498,101 @@ def handle_telegram_update(
         }
 
     if text.startswith("/findleads"):
-        # Format: /findleads Real Estate Agencies in Dallas, Texas 10
         raw_args = text[len("/findleads"):].strip()
-        match = re.search(r"^(.*?)\s+in\s+(.*?)(?:\s+(\d+))?$", raw_args, re.IGNORECASE)
-        if match:
-            niche = match.group(1).strip()
-            location = match.group(2).strip()
-            qty = int(match.group(3)) if match.group(3) else 10
+
+        if not raw_args:
+            # Start Interactive 5-Step Questionnaire
+            _USER_WIZARD_SESSIONS[user_key] = {"step": "awaiting_niche", "data": {}}
+            reply = (
+                "🎯 *Universal Client Discovery (Step 1/5)*\n\n"
+                "Built for any agency or freelancer offering B2B services.\n\n"
+                "What is your *target client niche or industry*?\n"
+                "_(e.g., Real Estate, Dental Clinics, Law Firms, Roofers, E-commerce, Gyms)_\n\n"
+                "💡 _Tip: You can cancel at any time by sending `/cancel`._"
+            )
+            return {"status": "wizard_step", "reply": reply}
+
+        lines = [line.strip() for line in raw_args.splitlines() if line.strip()]
+        kv: dict[str, str] = {}
+        for line in lines:
+            if ":" in line:
+                k, v = line.split(":", 1)
+                kv[k.strip().lower()] = v.strip()
+
+        bench_score = 0
+        services_desc = ""
+
+        if "niche" in kv or "location" in kv:
+            niche = kv.get("niche") or "Real Estate Agencies"
+            location = kv.get("location") or "Dallas, Texas"
+            qty_raw = kv.get("quantity") or kv.get("qty") or "25"
+            bench_raw = kv.get("benchmark") or kv.get("bench") or kv.get("score") or "0"
+            try:
+                qty = int(re.sub(r"[^\d]", "", qty_raw) or "25")
+            except ValueError:
+                qty = 25
+            try:
+                bench_score = int(re.sub(r"[^\d]", "", bench_raw) or "0")
+            except ValueError:
+                bench_score = 0
+            services_desc = kv.get("services", "")
+            target_services = map_service_keywords(services_desc)
         else:
-            niche = raw_args if raw_args else "Real Estate Agencies"
-            location = "Dallas, Texas"
-            qty = 10
+            match = re.search(r"^(.*?)\s+in\s+(.*?)(?:\s+(\d+))?(?:\s+(\d+))?$", raw_args, re.IGNORECASE)
+            if match:
+                niche = match.group(1).strip()
+                location = match.group(2).strip()
+                qty = int(match.group(3)) if match.group(3) else 25
+                bench_score = int(match.group(4)) if match.group(4) else 0
+            else:
+                niche = raw_args
+                location = "Dallas, Texas"
+                qty = 25
+            target_services = list(ALL_SERVICES)
 
         payload = {
             "niche": niche,
             "location": location,
-            "requested_quantity": min(max(qty, 1), 25),
-            "target_services": ["website_development", "website_redesign", "real_estate_listing_portal"],
-            "filters": {},
+            "requested_quantity": min(max(qty, 1), 100),
+            "max_limit": 100,
+            "target_services": target_services,
+            "filters": {"min_score": bench_score, "services_desc": services_desc},
             "provider": settings.DISCOVERY_PROVIDER,
         }
 
         camp = create_campaign(db, payload, settings)
         run_campaign(db, camp.id, settings)
-        leads_count = db.query(Lead).filter_by(campaign_id=camp.id).count()
 
-        # Generate CSV export
-        csv_str = generate_campaign_csv(db, camp.id)
-        filename = f"intentlead_{niche.replace(' ', '_').lower()}_{camp.id}.csv"
+        total_leads = db.query(Lead).filter_by(campaign_id=camp.id).count()
+        matching_leads = (
+            db.query(Lead)
+            .filter(Lead.campaign_id == camp.id, Lead.overall_score >= bench_score)
+            .count()
+            if bench_score > 0
+            else total_leads
+        )
+
+        csv_str = generate_campaign_csv(db, camp.id, min_score=bench_score)
+        filename = f"intentlead_{niche.replace(' ', '_').lower()}_bench{bench_score}_{camp.id}.csv"
 
         if settings.TELEGRAM_BOT_TOKEN and user_id:
+            caption = f"📄 Leads CSV: {matching_leads} prospects scored for {niche} (Score ≥ {bench_score})"
             send_telegram_document(
                 bot_token=settings.TELEGRAM_BOT_TOKEN,
                 chat_id=user_id,
                 file_bytes=csv_str.encode("utf-8"),
                 filename=filename,
-                caption=f"📄 Leads CSV: {leads_count} prospects scored for {niche}",
+                caption=caption,
             )
 
         reply = (
             f"🚀 *Campaign Launched & Scored!*\n\n"
             f"• Target: *{niche}* in *{location}*\n"
-            f"• Scored Leads: *{leads_count}*\n"
+            f"• Benchmark Filter: *Score ≥ {bench_score}*\n"
+            f"• Scored Leads Meeting Benchmark: *{matching_leads}* (out of {total_leads} audited)\n"
             f"• Campaign ID: `{camp.id}`\n\n"
             f"📄 CSV generated: `{filename}`\n"
-            f"Use `/showpriority B` or `/card <lead_id>` to inspect."
+            f"Use `/showpriority A` or `/card <lead_id>` to inspect."
         )
         return {
             "status": "success",
@@ -368,6 +600,7 @@ def handle_telegram_update(
             "filename": filename,
             "csv_content": csv_str,
             "campaign_id": str(camp.id),
+            "matching_leads": matching_leads,
         }
 
     return {"status": "unknown_command", "reply": "Unrecognized command. Type `/help` for options."}

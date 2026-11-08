@@ -29,7 +29,8 @@ def parse_campaign(payload: dict) -> CampaignInput | ParseError:
         fields.append("location")
 
     quantity = payload.get("requested_quantity")
-    if not isinstance(quantity, int) or isinstance(quantity, bool) or quantity < 1 or quantity > 25:
+    max_qty = payload.get("max_limit", 25)
+    if not isinstance(quantity, int) or isinstance(quantity, bool) or quantity < 1 or quantity > max_qty:
         fields.append("requested_quantity")
 
     target_services = payload.get("target_services")
