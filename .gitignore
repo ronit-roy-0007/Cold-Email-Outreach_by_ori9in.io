@@ -20,3 +20,5 @@ credentials/
 *.sqlite3
 *.db
 .pytest_cache/
+google-maps-scraper/
+

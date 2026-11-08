@@ -21,13 +21,13 @@ class JobResult:
 
 
 def map_gosom_listing(raw: dict[str, Any], discovery_source: str) -> NormalizedListing:
-    place_id = raw.get("placeId") or raw.get("place_id")
+    place_id = raw.get("placeId") or raw.get("place_id") or raw.get("data_id") or raw.get("cid") or raw.get("link")
     name = raw.get("title") or raw.get("name") or ""
     category = raw.get("category")
-    address = raw.get("address")
+    address = raw.get("address") or raw.get("complete_address")
     locality = raw.get("locality") or raw.get("city")
 
-    website = raw.get("website")
+    website = raw.get("website") or raw.get("WebSite")
     if website is not None:
         website_str = str(website).strip()
         website = website_str if website_str else None
@@ -40,10 +40,13 @@ def map_gosom_listing(raw: dict[str, Any], discovery_source: str) -> NormalizedL
     email: str | None = None
     if isinstance(emails, list) and len(emails) > 0 and emails[0]:
         email = str(emails[0]).strip()
+    elif isinstance(emails, str) and emails.strip():
+        clean_emails = [e.strip(" '\"[]") for e in emails.split(",") if e.strip(" '\"[]")]
+        email = clean_emails[0] if clean_emails else None
     elif raw.get("email"):
         email = str(raw.get("email")).strip()
 
-    rating_raw = raw.get("rating")
+    rating_raw = raw.get("rating") if "rating" in raw else raw.get("review_rating")
     rating: float | None = None
     if rating_raw is not None:
         try:
@@ -59,7 +62,7 @@ def map_gosom_listing(raw: dict[str, Any], discovery_source: str) -> NormalizedL
         except (ValueError, TypeError):
             review_count = None
 
-    listing_status = raw.get("listingStatus") or raw.get("listing_status")
+    listing_status = raw.get("listingStatus") or raw.get("listing_status") or raw.get("status")
     reviews = list(raw.get("reviews") or [])
 
     return NormalizedListing(
@@ -160,16 +163,32 @@ class ScraperClient:
         if self.provider == "live":
             if not self.base_url:
                 raise ScraperError("GOOGLE_MAPS_SCRAPER_BASE_URL missing")
-            endpoint = f"{self.base_url.rstrip('/')}/jobs"
+            clean_base = self.base_url.rstrip("/")
+            endpoint = f"{clean_base}/jobs"
+            kw = f"{query} in {location}".strip() if location else query
             payload = {
+                "name": f"{query} - {location}".strip(" -") or "Search",
+                "keywords": [kw],
+                "lang": "en",
+                "depth": max(1, min(limit // 10, 10)) if limit else 5,
+                "max_time": 300,
+                "email": True,
+                "fast_mode": False,
                 "query": query,
                 "location": location,
                 "limit": limit,
                 "filters": filters or {},
             }
-            resp = self._request_with_retry("POST", endpoint, json=payload)
+            try:
+                resp = self._request_with_retry("POST", endpoint, json=payload)
+            except ScraperError as exc:
+                if "/api/v1" not in endpoint and ("404" in str(exc) or "not found" in str(exc).lower()):
+                    endpoint = f"{clean_base}/api/v1/jobs"
+                    resp = self._request_with_retry("POST", endpoint, json=payload)
+                else:
+                    raise
             data = resp.json()
-            job_id = data.get("job_id") or data.get("id")
+            job_id = data.get("job_id") or data.get("id") or data.get("ID")
             if not job_id:
                 raise ScraperError("Missing job_id in scraper response")
             return str(job_id)
@@ -192,15 +211,46 @@ class ScraperClient:
         if self.provider == "live":
             if not self.base_url:
                 raise ScraperError("GOOGLE_MAPS_SCRAPER_BASE_URL missing")
-            endpoint = f"{self.base_url.rstrip('/')}/jobs/{job_id}"
-            resp = self._request_with_retry("GET", endpoint)
+            clean_base = self.base_url.rstrip("/")
+            endpoint = f"{clean_base}/jobs/{job_id}"
+            try:
+                resp = self._request_with_retry("GET", endpoint)
+            except ScraperError as exc:
+                if "/api/v1" not in endpoint and ("404" in str(exc) or "not found" in str(exc).lower()):
+                    endpoint = f"{clean_base}/api/v1/jobs/{job_id}"
+                    resp = self._request_with_retry("GET", endpoint)
+                else:
+                    raise
             data = resp.json()
+            raw_status = str(data.get("status") or data.get("Status") or "unknown")
+            norm_status = raw_status.lower()
+            if norm_status in ("ok", "completed", "success"):
+                status_str = "completed"
+            elif norm_status in ("failed", "error"):
+                status_str = "failed"
+            elif norm_status in ("pending", "working", "running"):
+                status_str = "pending"
+            else:
+                status_str = norm_status
+
             raw_results = data.get("results") or []
+            if status_str == "completed" and not raw_results:
+                dl_endpoint = endpoint.replace(f"/{job_id}", f"/{job_id}/download")
+                try:
+                    dl_resp = self._request_with_retry("GET", dl_endpoint)
+                    if dl_resp.status_code == 200 and dl_resp.text.strip():
+                        import csv
+                        import io
+                        reader = csv.DictReader(io.StringIO(dl_resp.text))
+                        raw_results = list(reader)
+                except Exception:
+                    pass
+
             results = [map_gosom_listing(r, "live") for r in raw_results]
             return JobResult(
-                status=data.get("status", "unknown"),
+                status=status_str,
                 results=results,
-                error=data.get("error"),
+                error=data.get("error") or data.get("Error"),
                 raw_snapshot=data,
             )
 
