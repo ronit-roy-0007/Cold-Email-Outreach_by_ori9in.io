@@ -16,13 +16,13 @@ class DraftResult:
 
 
 SERVICE_DISPLAY_NAMES = {
-    "website_development": "modern website development",
-    "website_redesign": "website redesign and mobile responsiveness",
+    "website_development": "modern, mobile-responsive website development with built-in lead capture",
+    "website_redesign": "website redesign and user-friendly mobile optimization",
     "real_estate_listing_portal": "custom property listing search and filter portal",
-    "ai_chatbot": "conversational AI assistant for visitor inquiries",
-    "business_process_automation": "automated workflow operations",
-    "lead_management_followup": "automated lead capture and prompt follow-up systems",
-    "crm_appointment_automation": "online appointment and showing booking automation",
+    "ai_chatbot": "deploying a 24/7 AI chat assistant to capture inquiries and assist customers",
+    "business_process_automation": "automated business systems (leads handling, follow-ups, and calendar scheduling)",
+    "lead_management_followup": "automated lead intake, instant outreach, and multi-touch follow-up systems",
+    "crm_appointment_automation": "automated appointment booking and showing scheduling",
 }
 
 
@@ -119,39 +119,47 @@ def build_draft(
 
     svc_display = SERVICE_DISPLAY_NAMES.get(recommended_service, recommended_service.replace("_", " "))
 
+    website_hook = ""
+    if recommended_service == "website_development":
+        website_hook = (
+            " In today's digital market, having a modern, fast, and mobile-friendly website with built-in inquiry capture "
+            "substantially increases customer trust and monthly client conversion."
+        )
+    elif recommended_service == "website_redesign" or (matched_ev and "viewport" in matched_ev.claim.lower()):
+        website_hook = (
+            " Upgrading to a modern, user-friendly, and mobile-responsive website directly prevents potential clients "
+            "from bouncing to competitors and increases qualified inquiries."
+        )
+
     reputation_note = ""
     if rating is not None and rating < 4.4:
         reputation_note = (
-            f" We also noticed {business_name} currently has a {rating:.1f}★ rating "
-            f"({review_count or 0} reviews) on Google Maps — our automated post-service review system "
-            f"helps turn satisfied customers into 5-star reviews on autopilot, boosting your online presence and inbound sales."
+            f" We also noticed {business_name} currently has a {rating:.1f}★ rating ({review_count or 0} reviews) on Google Maps. "
+            f"Our personalized automation system is built to convert this gap and build a dominant 5-star presence — "
+            f"proven to increase monthly sales, inbound leads, and total revenue by a substantial margin. "
+            f"Our system handles everything: automated review generation, taking leads, handling inquiries, "
+            f"prompt multi-channel follow-ups, 24/7 AI chatbot customer assistance, and meeting scheduling."
         )
     elif review_count is not None and review_count < 25:
         reputation_note = (
-            f" We also noticed you currently have {review_count} Google reviews — "
-            f"our automated follow-up system helps rapidly build authentic 5-star reviews to elevate your search ranking and convert more visitors."
+            f" We also noticed you currently have {review_count} Google reviews. "
+            f"Our personalized automation system converts this gap into an active 5-star reputation engine to increase monthly sales and total revenue — "
+            f"combining automated review collection with 24/7 AI chat assistance, lead handling, and automated appointment scheduling."
         )
 
-    if reputation_note:
-        body = (
-            f"Hi {business_name},\n\n"
-            f"I am {sender} with {agency}. I reviewed your public business presence and noticed "
-            f"{observation}.{reputation_note} If helpful, we can discuss {svc_display}. "
-            f"Happy to share a brief outline — no need to reply if this is not relevant.\n\n"
-            f"Best,\n"
-            f"{sender}\n"
-            f"{agency}"
-        )
-    else:
-        body = (
-            f"Hi {business_name},\n\n"
-            f"I am {sender} with {agency}. I reviewed your public business presence and noticed "
-            f"{observation}. If helpful, we can discuss {svc_display}. "
-            f"Happy to share a brief outline — no need to reply if this is not relevant.\n\n"
-            f"Best,\n"
-            f"{sender}\n"
-            f"{agency}"
-        )
+    middle_pitch = f"{website_hook}{reputation_note}".strip()
+    if middle_pitch:
+        middle_pitch = f" {middle_pitch}"
+
+    body = (
+        f"Hi {business_name},\n\n"
+        f"I am {sender} with {agency}. I reviewed your public business presence and noticed "
+        f"{observation}.{middle_pitch} If helpful, we can discuss {svc_display}. "
+        f"Happy to share a brief outline — no need to reply if this is not relevant.\n\n"
+        f"Best,\n"
+        f"{sender}\n"
+        f"{agency}"
+    )
 
     return DraftResult(
         status="preview",

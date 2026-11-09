@@ -109,6 +109,6 @@ def test_draft_includes_rating_and_review_count_pitch():
     assert r.status == "preview"
     assert "3.9★" in r.body
     assert "12 reviews" in r.body
-    assert "review system" in r.body.lower()
-    assert "online presence and inbound sales" in r.body.lower()
+    assert "5-star" in r.body.lower()
+    assert "monthly sales" in r.body.lower() or "revenue" in r.body.lower()
 

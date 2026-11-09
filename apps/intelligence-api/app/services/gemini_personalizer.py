@@ -69,12 +69,17 @@ PROSPECT AUDIT DATA:
 • Recommended Solution: {svc_display}
 {f'• Additional Operator Focus: {custom_instruction}' if custom_instruction else ''}
 
+AGENCY SERVICES & VALUE PROPOSITION (USE WHICHEVER SUITS STRICT LEAD ANALYSIS):
+1. Website Gaps: If their website is missing, not responsive, or not user-friendly, pitch modern responsive website development with built-in lead capture that increases client conversion.
+2. Reputation & Rating Gaps: If their Google rating is below 5 stars ({rating_str}) or has low reviews ({review_count_str}), pitch how our personalized automated system converts this gap into a dominant 5-star presence, significantly boosting monthly sales and total revenue.
+3. Full Automation Suite: We provide complete business automation: taking leads, handling leads, multi-channel outreach, prompt follow-ups, 24/7 AI chatbot customer assistant, meeting scheduling, and ad management.
+
 STRICT COPYWRITING RULES:
-1. Sentence 1 (Specific Observation): Mention a verified public fact about their business (e.g. their {rating_str} rating with {review_count_str}, unoptimized mobile site, or review friction about response delays).
-2. Sentence 2 (Direct Value Solution): Explain specifically how {agency_name} solves this exact pain point (e.g. automated review generation system turning clients into 5-star Google reviews on autopilot, or 24/7 AI lead capture and instant follow-up).
-3. Sentence 3 (Low-Friction Call-to-Action): Ask a low-friction consultative question (e.g. "Open to a 2-minute video walkthrough of how this works for {business.locality or 'local'} teams?").
-4. Tone: Direct founder-to-founder, concise, helpful, and natural. NEVER use generic clichés like "Hope this email finds you well" or "I came across your website".
-5. Word Count: Under 75 words.
+1. Sentence 1 (The Hook): Acknowledge their business and point out their specific verified situation (e.g. mention their {rating_str} rating ({review_count_str}) on Google Maps, or that their website is missing/not mobile-optimized).
+2. Sentence 2 (The Solution & Revenue Impact): Explain how our personalized automation system bridges this exact gap to convert it into a 5-star presence and increase monthly sales and total revenue by a substantial margin through automated review generation, 24/7 AI chat assistance, and instant lead handling.
+3. Sentence 3 (Low-Friction Call-to-Action): Ask a low-friction question (e.g. "Open to a quick 2-minute walkthrough outline of how this works for {business.locality or 'local'} teams?").
+4. Tone: Confident, consultative, direct founder-to-founder. NEVER use generic clichés like "Hope this finds you well".
+5. Word Count: 55-80 words.
 6. Sign off strictly as:
 Best,
 {sender_name}
