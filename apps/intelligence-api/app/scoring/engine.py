@@ -108,8 +108,8 @@ def score_lead(
         w_reason = reasons.UNKNOWN_NOT_INSPECTED
         w_ev_ids = _ev_ids(restricted_ev)
     elif site_inspected:
-        if no_viewport_ev and not has_search_ev:
-            w_points = 18
+        if no_viewport_ev:
+            w_points = 20
             w_reason = reasons.THIN_UNRESPONSIVE_SITE
             w_ev_ids = _ev_ids(no_viewport_ev, missing_search_ev)
         elif missing_search_ev and "real estate" in category.lower():
@@ -156,7 +156,7 @@ def score_lead(
             lc_points = 20
             lc_reason = reasons.NO_INQUIRY_PATH
         elif not has_form_ev and not has_booking_ev and (has_whatsapp_ev or phone or email):
-            lc_points = 14
+            lc_points = 16
             lc_reason = reasons.CONTACT_ONLY
             lc_ev_ids = _ev_ids(has_whatsapp_ev)
         elif has_form_ev or has_booking_ev:
@@ -251,16 +251,14 @@ def score_lead(
     # 4. business_suitability (max 15)
     bs_points = 0
     bs_reason = reasons.INSUFFICIENT_LISTING_FIELDS
-    if "real estate" in category.lower():
-        if str(listing_status).lower() in ("open", "active", "operating"):
+    is_active = str(listing_status).lower() in ("open", "active", "operating", "")
+    if category:
+        if is_active:
             bs_points = 15
             bs_reason = reasons.NICHE_ACTIVE
         else:
             bs_points = 3
             bs_reason = reasons.NICHE_CLOSED
-    elif category:
-        bs_points = 0
-        bs_reason = reasons.UNRELATED_CATEGORY
     else:
         bs_points = 6
         bs_reason = reasons.INSUFFICIENT_LISTING_FIELDS

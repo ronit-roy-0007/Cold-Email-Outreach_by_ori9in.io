@@ -47,6 +47,45 @@ NICHE_PATTERNS: dict[str, dict[str, list[str]]] = {
         ],
         "category": "Legal services",
     },
+    "law": {
+        "prefixes": [
+            "Sterling", "Vanguard", "Beacon", "Apex", "Summit", "Cornerstone", "Preston",
+            "Oakridge", "Centennial", "Justice First", "Heritage", "Sovereign", "Alliance",
+            "Liberty", "Benchmark", "Pinnacle", "Meridian", "Founders", "Capitol"
+        ],
+        "suffixes": [
+            "Law Partners", "Legal Group", "Attorneys at Law", "Advocates & Counselors",
+            "Legal Solutions", "Law Practice", "Litigation & Advisory Group", "Law Firm",
+            "Associates & Counsel", "Legal Advisors", "Trial Attorneys"
+        ],
+        "category": "Law firm",
+    },
+    "attorney": {
+        "prefixes": [
+            "Sterling", "Vanguard", "Beacon", "Apex", "Summit", "Cornerstone", "Preston",
+            "Oakridge", "Centennial", "Justice First", "Heritage", "Sovereign", "Alliance"
+        ],
+        "suffixes": [
+            "Law Partners", "Legal Group", "Attorneys at Law", "Advocates & Counselors",
+            "Legal Solutions", "Law Practice", "Litigation & Advisory Group"
+        ],
+        "category": "Attorneys",
+    },
+    "accounting": {
+        "prefixes": ["Apex", "Sterling", "Summit", "Prime", "Vanguard", "Beacon", "Precision"],
+        "suffixes": ["CPA Group", "Accounting Advisors", "Tax & Financial Services", "Financial Partners"],
+        "category": "Accounting firm",
+    },
+    "roofing": {
+        "prefixes": ["Apex", "Summit", "Pinnacle", "Vanguard", "Precision", "Heritage", "Titan"],
+        "suffixes": ["Roofing Specialists", "Roofing & Construction", "Roofing Solutions", "Roofing Co."],
+        "category": "Roofing contractor",
+    },
+    "hvac": {
+        "prefixes": ["Apex", "Climate Care", "Precision", "Prime", "Air Solutions", "Pure"],
+        "suffixes": ["HVAC Services", "Heating & Air Conditioning", "Air Systems", "Mechanical Services"],
+        "category": "HVAC contractor",
+    },
 }
 
 DEFAULT_PREFIXES = [
