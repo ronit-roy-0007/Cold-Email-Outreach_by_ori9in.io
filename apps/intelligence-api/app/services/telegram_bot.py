@@ -1046,6 +1046,22 @@ def handle_telegram_update(
             remaining_needed = max(0, camp.target_sent_emails - camp.total_sent_emails)
             max_batch_send = min(remaining_needed, camp.requested_quantity) if camp.requested_quantity > 0 else remaining_needed
 
+            # The operator clicked "Approve Batch X" -> transition qualified draft leads to approved
+            batch_candidates = (
+                db.query(Lead)
+                .filter(
+                    Lead.campaign_id == camp.id,
+                    Lead.overall_score >= bench_score,
+                    Lead.outreach_status == "draft",
+                )
+                .order_by(Lead.overall_score.desc())
+                .all()
+            )
+            for cand in batch_candidates:
+                cand.outreach_status = "approved"
+                db.add(Approval(lead_id=cand.id, user_id=str(user_id), action="approve"))
+            db.commit()
+
             if settings.TELEGRAM_BOT_TOKEN and user_id:
                 send_telegram_text(
                     bot_token=settings.TELEGRAM_BOT_TOKEN,
@@ -1215,6 +1231,22 @@ def handle_telegram_update(
                 loop_count += 1
                 remaining_needed = camp.target_sent_emails - camp.total_sent_emails
                 max_batch_send = min(remaining_needed, camp.requested_quantity) if camp.requested_quantity > 0 else remaining_needed
+
+                # Auto mode approved by user -> transition batch candidates to approved
+                batch_candidates = (
+                    db.query(Lead)
+                    .filter(
+                        Lead.campaign_id == camp.id,
+                        Lead.overall_score >= bench_score,
+                        Lead.outreach_status == "draft",
+                    )
+                    .order_by(Lead.overall_score.desc())
+                    .all()
+                )
+                for cand in batch_candidates:
+                    cand.outreach_status = "approved"
+                    db.add(Approval(lead_id=cand.id, user_id=str(user_id), action="approve"))
+                db.commit()
 
                 disp_summary = dispatch_subcampaign_batch(
                     db=db,
@@ -2238,9 +2270,10 @@ def handle_telegram_update(
         if not acc:
             return {"status": "error", "reply": f"⚠️ Mailbox *{target_em}* not found in active database pool."}
 
+        plain_password = acc.get_password(getattr(settings, "FIELD_ENCRYPTION_KEY", None))
         is_valid, err_msg = verify_gmail_credentials(
             email=acc.email,
-            password=acc.password,
+            password=plain_password,
             smtp_host=settings.SMTP_HOST or "smtp.gmail.com",
             smtp_port=settings.SMTP_PORT or 587,
         )

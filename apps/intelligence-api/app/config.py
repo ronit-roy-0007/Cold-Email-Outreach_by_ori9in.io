@@ -16,6 +16,10 @@ class DatabaseConfigError(Exception):
     pass
 
 
+class SecurityConfigError(Exception):
+    pass
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -78,6 +82,23 @@ def resolve_database_url(settings: Settings) -> str:
                 return f"sqlite:///{resolved.as_posix()}"
         return url
     return url
+
+
+def validate_production_security(settings: Settings) -> None:
+    """
+    Enforces essential security controls when running in production environment.
+    Fails fast at application startup if critical secrets or unsafe policies are detected.
+    """
+    if settings.APP_ENV == "production":
+        if not settings.FIELD_ENCRYPTION_KEY or not settings.FIELD_ENCRYPTION_KEY.strip():
+            raise SecurityConfigError(
+                "FIELD_ENCRYPTION_KEY must be configured in production to encrypt sensitive credentials at rest."
+            )
+        cors_str = (settings.CORS_ORIGINS or "*").strip()
+        if cors_str == "*":
+            raise SecurityConfigError(
+                "CORS_ORIGINS cannot be set to wildcard '*' in production. Provide an explicit comma-separated allowlist of origins."
+            )
 
 
 @lru_cache

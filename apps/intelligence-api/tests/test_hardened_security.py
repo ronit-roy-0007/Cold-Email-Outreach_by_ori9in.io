@@ -358,3 +358,401 @@ def test_multi_worker_consistency():
     # Worker B attempts request 4 (rejected, count=4 > 2)
     assert worker_b.is_allowed(ip, max_requests=2, window_seconds=60) is False
 
+
+# ==============================================================================
+# 4. Mandatory Human Approval Enforcement Tests
+# ==============================================================================
+
+def test_human_approval_enforcement_on_dispatch(db_session):
+    from app.models import Business, Campaign, Lead
+    from app.services.email_dispatcher import (
+        dispatch_approved_campaign_leads,
+        dispatch_single_email,
+    )
+
+    camp = Campaign(
+        niche="Dentists",
+        location="Chicago",
+        requested_quantity=10,
+        target_services=["SEO"],
+        filters={},
+        provider="live",
+        status="created",
+    )
+    db_session.add(camp)
+    db_session.flush()
+
+    biz1 = Business(
+        identity_key="biz-chicago-dental-1",
+        name="Chicago Dental Care",
+        category="Dentist",
+        address="100 Michigan Ave",
+        locality="Chicago",
+        email="contact@chicagodental.example.com",
+        discovery_source="google_maps",
+        source_fields={},
+    )
+    biz2 = Business(
+        identity_key="biz-chicago-dental-2",
+        name="Lakeside Dental",
+        category="Dentist",
+        address="200 Michigan Ave",
+        locality="Chicago",
+        email="info@lakesidedental.example.com",
+        discovery_source="google_maps",
+        source_fields={},
+    )
+    db_session.add_all([biz1, biz2])
+    db_session.flush()
+
+    # 1. Lead in 'draft' status (unapproved)
+    draft_lead = Lead(
+        campaign_id=camp.id,
+        business_id=biz1.id,
+        overall_score=85,
+        priority="A",
+        confidence="high",
+        recommended_service="SEO",
+        outreach_status="draft",
+    )
+    # 2. Lead in 'rejected' status
+    rejected_lead = Lead(
+        campaign_id=camp.id,
+        business_id=biz2.id,
+        overall_score=75,
+        priority="B",
+        confidence="medium",
+        recommended_service="SEO",
+        outreach_status="rejected",
+    )
+    db_session.add_all([draft_lead, rejected_lead])
+    db_session.commit()
+
+    test_settings = Settings(
+        OUTREACH_DRY_RUN=True,
+        SMTP_USER="outreach_test@example.com",
+        SMTP_PASSWORD="test_password_1234",
+    )
+
+    # A: Bulk dispatch query MUST ignore draft and rejected leads
+    res = dispatch_approved_campaign_leads(db=db_session, campaign_id=camp.id, settings=test_settings)
+    assert res["total_candidates"] == 0
+    assert res["sent"] == 0
+    assert res["simulated"] == 0
+
+    # B: Explicit lead_ids MUST NOT bypass human approval
+    res_explicit = dispatch_approved_campaign_leads(
+        db=db_session,
+        campaign_id=camp.id,
+        settings=test_settings,
+        lead_ids=[draft_lead.id, rejected_lead.id],
+    )
+    assert res_explicit["total_candidates"] == 0
+
+    # C: Final dispatch boundary gate (Gate 0) in dispatch_single_email MUST reject unapproved lead
+    outbound = dispatch_single_email(
+        db=db_session,
+        lead=draft_lead,
+        biz=biz1,
+        settings=test_settings,
+        resolver_fn=lambda d: ["192.0.2.1"],
+    )
+    assert outbound.status == "rejected"
+    assert "human approval required" in outbound.error_message.lower()
+
+    # D: Once human approves the lead, dispatch succeeds cleanly
+    draft_lead.outreach_status = "approved"
+    db_session.commit()
+
+    res_approved = dispatch_approved_campaign_leads(
+        db=db_session,
+        campaign_id=camp.id,
+        settings=test_settings,
+        resolver_fn=lambda d: ["192.0.2.1"],
+    )
+    assert res_approved["total_candidates"] == 1
+    assert res_approved["simulated"] == 1
+
+
+def test_sub_campaign_human_approval_enforcement(db_session):
+    from app.models import Business, Campaign, Lead
+    from app.services.sub_campaign_service import dispatch_subcampaign_batch
+
+    camp = Campaign(
+        niche="Plumbers",
+        location="Boston",
+        requested_quantity=10,
+        target_services=["Chatbots"],
+        filters={},
+        provider="live",
+        status="created",
+    )
+    db_session.add(camp)
+    db_session.flush()
+
+    biz = Business(
+        identity_key="biz-boston-plumber-1",
+        name="Boston Rapid Plumbing",
+        category="Plumber",
+        address="200 Commonwealth Ave",
+        locality="Boston",
+        email="info@bostonplumbing.example.com",
+        discovery_source="google_maps",
+        source_fields={},
+    )
+    db_session.add(biz)
+    db_session.flush()
+
+    lead = Lead(
+        campaign_id=camp.id,
+        business_id=biz.id,
+        overall_score=90,
+        priority="A",
+        confidence="high",
+        recommended_service="Chatbots",
+        outreach_status="draft",
+    )
+    db_session.add(lead)
+    db_session.commit()
+
+    test_settings = Settings(
+        OUTREACH_DRY_RUN=True,
+        SMTP_USER="outreach_test@example.com",
+        SMTP_PASSWORD="test_password_1234",
+    )
+
+    # Sub-campaign dispatch MUST reject draft leads
+    res = dispatch_subcampaign_batch(
+        db=db_session,
+        campaign_id=camp.id,
+        settings=test_settings,
+        max_to_send=10,
+        resolver_fn=lambda d: ["192.0.2.1"],
+    )
+    assert res["total_candidates"] == 0
+
+    # Once approved, sub-campaign dispatches
+    lead.outreach_status = "approved"
+    db_session.commit()
+
+    res_ok = dispatch_subcampaign_batch(
+        db=db_session,
+        campaign_id=camp.id,
+        settings=test_settings,
+        max_to_send=10,
+        resolver_fn=lambda d: ["192.0.2.1"],
+    )
+    assert res_ok["total_candidates"] == 1
+    assert res_ok["simulated"] == 1
+
+
+# ==============================================================================
+# 5. Telegram /testmailbox Decryption Tests
+# ==============================================================================
+
+def test_telegram_testmailbox_decryption_with_encrypted_and_legacy_passwords(db_session):
+    from app.models import MailboxAccount
+    from app.services.mailbox_pool import add_mailbox_account
+    from app.services.telegram_bot import handle_telegram_update
+
+    key = "test-secret-key-material-32bytes"
+    settings = Settings(
+        APP_ENV="development",
+        TELEGRAM_ALLOWED_USER_ID="12345",
+        FIELD_ENCRYPTION_KEY=key,
+    )
+
+    # 1. Add encrypted mailbox account
+    enc_acc = add_mailbox_account(
+        db=db_session,
+        email="encrypted_mailbox@example.com",
+        password="plain-secret-password-16",
+        sender_name="Roy",
+        encryption_key=key,
+    )
+    assert enc_acc.password.startswith("gAAAAA")
+
+    # 2. Add legacy plaintext mailbox account directly into DB
+    leg_acc = MailboxAccount(
+        email="legacy_mailbox@example.com",
+        password="legacy-plaintext-password",
+        sender_name="Roy",
+        is_active=True,
+    )
+    db_session.add(leg_acc)
+    db_session.commit()
+
+    with patch("app.services.telegram_bot.verify_gmail_credentials") as mock_verify:
+        mock_verify.return_value = (True, "Connected")
+
+        # Test Encrypted Mailbox
+        res_enc = handle_telegram_update(
+            update={"message": {"from": {"id": 12345}, "text": "/testmailbox encrypted_mailbox@example.com"}},
+            db=db_session,
+            settings=settings,
+        )
+        assert res_enc["status"] == "success"
+        # Assert verify_gmail_credentials received DECRYPTED plaintext, NOT Fernet token!
+        mock_verify.assert_called_with(
+            email="encrypted_mailbox@example.com",
+            password="plain-secret-password-16",
+            smtp_host="smtp.gmail.com",
+            smtp_port=587,
+        )
+
+        # Test Legacy Mailbox
+        res_leg = handle_telegram_update(
+            update={"message": {"from": {"id": 12345}, "text": "/testmailbox legacy_mailbox@example.com"}},
+            db=db_session,
+            settings=settings,
+        )
+        assert res_leg["status"] == "success"
+        mock_verify.assert_called_with(
+            email="legacy_mailbox@example.com",
+            password="legacy-plaintext-password",
+            smtp_host="smtp.gmail.com",
+            smtp_port=587,
+        )
+
+
+# ==============================================================================
+# 6. Production Security & Fail-Closed Webhook Tests
+# ==============================================================================
+
+def test_production_security_validation():
+    from app.config import SecurityConfigError, Settings, validate_production_security
+
+    # Missing FIELD_ENCRYPTION_KEY in production must raise SecurityConfigError
+    prod_bad_key = Settings(
+        APP_ENV="production",
+        DATABASE_URL="postgresql://user:pass@localhost:5432/db",
+        FIELD_ENCRYPTION_KEY="",
+        CORS_ORIGINS="https://dashboard.example.com",
+    )
+    with pytest.raises(SecurityConfigError, match="FIELD_ENCRYPTION_KEY must be configured"):
+        validate_production_security(prod_bad_key)
+
+    # Wildcard CORS in production must raise SecurityConfigError
+    prod_bad_cors = Settings(
+        APP_ENV="production",
+        DATABASE_URL="postgresql://user:pass@localhost:5432/db",
+        FIELD_ENCRYPTION_KEY="prod-valid-encryption-key-passphrase",
+        CORS_ORIGINS="*",
+    )
+    with pytest.raises(SecurityConfigError, match="CORS_ORIGINS cannot be set to wildcard"):
+        validate_production_security(prod_bad_cors)
+
+    # Valid production settings pass cleanly
+    prod_valid = Settings(
+        APP_ENV="production",
+        DATABASE_URL="postgresql://user:pass@localhost:5432/db",
+        FIELD_ENCRYPTION_KEY="prod-valid-encryption-key-passphrase",
+        CORS_ORIGINS="https://intentlead.agency,https://dashboard.intentlead.agency",
+    )
+    validate_production_security(prod_valid)
+
+
+def test_webhook_fail_closed_when_secrets_missing(db_session):
+    webhook_settings = Settings(
+        APP_ENV="development",
+        DATABASE_URL="sqlite:///:memory:",
+        RESEND_WEBHOOK_SECRET="",
+        OUTREACH_WEBHOOK_SECRET="",
+    )
+    app.dependency_overrides[get_session] = lambda: db_session
+    app.dependency_overrides[get_settings] = lambda: webhook_settings
+
+    with TestClient(app) as client:
+        res = client.post(
+            "/api/outreach/webhook/event",
+            json={"email": "attacker@example.com", "event": "complaint"},
+        )
+        # Must fail-closed with 401 Unauthorized
+        assert res.status_code == 401
+        assert "signature verification required" in res.json()["detail"].lower()
+
+    app.dependency_overrides.clear()
+
+
+def test_webhook_hmac_verification_success_and_tampered(db_session):
+    secret = "outreach-hmac-secret-xyz"
+    webhook_settings = Settings(
+        APP_ENV="development",
+        DATABASE_URL="sqlite:///:memory:",
+        OUTREACH_WEBHOOK_SECRET=secret,
+    )
+    app.dependency_overrides[get_session] = lambda: db_session
+    app.dependency_overrides[get_settings] = lambda: webhook_settings
+
+    with TestClient(app) as client:
+        raw_body = b'{"email": "hmac_bounce@example.com", "event": "bounce"}'
+        ts = str(int(time.time()))
+        to_sign = f"{ts}.".encode("utf-8") + raw_body
+        valid_sig = hmac.new(secret.encode("utf-8"), to_sign, hashlib.sha256).hexdigest()
+
+        # 1. Valid HMAC -> 200
+        res_ok = client.post(
+            "/api/outreach/webhook/event",
+            content=raw_body,
+            headers={
+                "content-type": "application/json",
+                "x-signature-sha256": valid_sig,
+                "x-webhook-timestamp": ts,
+            },
+        )
+        assert res_ok.status_code == 200
+        assert res_ok.json()["status"] == "success"
+
+        # 2. Tampered signature -> 401
+        res_tampered = client.post(
+            "/api/outreach/webhook/event",
+            content=raw_body,
+            headers={
+                "content-type": "application/json",
+                "x-signature-sha256": "tampered_fake_signature",
+                "x-webhook-timestamp": ts,
+            },
+        )
+        assert res_tampered.status_code == 401
+
+    app.dependency_overrides.clear()
+
+
+# ==============================================================================
+# 7. Distributed Webhook Replay & Observability Tests
+# ==============================================================================
+
+def test_distributed_webhook_replay_protection_redis():
+    from app.services.webhook_security import WebhookReplayCache
+
+    mock_redis = MagicMock()
+    # First call: key is fresh, set NX returns True
+    # Second call: key already exists, set NX returns None/False
+    mock_redis.set.side_effect = [True, None]
+
+    cache = WebhookReplayCache(redis_client=mock_redis)
+
+    # Worker 1 processes event
+    assert cache.check_and_record("evt_worker_100") is True
+    mock_redis.set.assert_called_with("webhook_replay:evt_worker_100", "1", ex=600, nx=True)
+
+    # Worker 2 attempts same event -> atomically rejected
+    assert cache.check_and_record("evt_worker_100") is False
+
+
+def test_redis_rate_limiter_observability_logging(caplog):
+    import logging
+    limiter = DistributedRateLimiter()
+
+    mock_redis = MagicMock()
+    mock_redis.pipeline.side_effect = Exception("Redis cluster partition failure")
+    limiter._redis = mock_redis
+
+    with caplog.at_level(logging.WARNING, logger="intentlead.security"):
+        allowed = limiter.is_allowed("198.51.100.42", max_requests=5, window_seconds=60)
+        assert allowed is True
+        assert any(
+            "falling back to in-memory" in rec.message and "198.51.100.42" in rec.message
+            for rec in caplog.records
+        )
+

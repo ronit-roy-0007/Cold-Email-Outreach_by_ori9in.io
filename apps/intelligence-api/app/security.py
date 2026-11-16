@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hmac
+import logging
 import time
 from collections import defaultdict
 from typing import Any
@@ -9,6 +10,8 @@ from fastapi import Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
 from app.config import Settings, get_settings
+
+logger = logging.getLogger("intentlead.security")
 
 
 # ==========================================
@@ -167,9 +170,13 @@ class DistributedRateLimiter:
                         pass
                     return False
                 return True
-            except Exception:
-                # Redis outage: fail-safe fallback to local in-memory sliding window
-                pass
+            except Exception as exc:
+                # Redis outage: fail-safe observable fallback to local in-memory sliding window
+                logger.warning(
+                    "Distributed Redis rate limiter error (%s); falling back to in-memory sliding window for client %s",
+                    exc,
+                    client_ip,
+                )
 
         return self._local.is_allowed(client_ip, max_requests, window_seconds)
 

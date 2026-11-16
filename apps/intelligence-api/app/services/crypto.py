@@ -14,9 +14,19 @@ def derive_fernet_key(key_material: Optional[str] = None) -> bytes:
     Derives a valid 32-byte URL-safe base64-encoded Fernet key.
     - If key_material is already a valid Fernet key (44 chars urlsafe base64), uses it.
     - Otherwise, deterministically hashes key_material using SHA-256 and base64 encodes it.
-    - If key_material is empty, falls back to a deterministic application salt for zero-crash local dev.
+    - If key_material is empty:
+      - In production (APP_ENV=production), raises ValueError to prevent insecure fallback.
+      - In development, falls back to a deterministic application salt for zero-crash local dev.
     """
     if not key_material or not key_material.strip():
+        try:
+            from app.config import get_settings
+            st = get_settings()
+            if getattr(st, "APP_ENV", "development") == "production":
+                raise ValueError("FIELD_ENCRYPTION_KEY must be configured in production environment. Deterministic fallback is disallowed.")
+        except Exception as exc:
+            if isinstance(exc, ValueError):
+                raise
         derived = hashlib.sha256(DEFAULT_FALLBACK_SALT).digest()
         return base64.urlsafe_b64encode(derived)
 

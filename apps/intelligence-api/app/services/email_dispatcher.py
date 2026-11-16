@@ -220,6 +220,16 @@ def dispatch_single_email(
     db.add(outbound)
     db.flush()
 
+    # Gate 0: Human Approval Enforcement (Mandatory)
+    if getattr(lead, "outreach_status", "") != "approved":
+        outbound.status = "rejected"
+        outbound.error_message = (
+            f"Dispatch rejected: lead status is '{getattr(lead, 'outreach_status', 'unknown')}', "
+            "mandatory human approval required before outbound dispatch."
+        )
+        db.flush()
+        return outbound
+
     # Gate 1: Check recipient email presence
     if not recipient_email:
         outbound.status = "failed"
@@ -330,12 +340,10 @@ def dispatch_approved_campaign_leads(
         db.query(Lead, Business)
         .join(Business, Lead.business_id == Business.id)
         .filter(Lead.campaign_id == campaign_id)
+        .filter(Lead.outreach_status == "approved")
     )
     if lead_ids:
         query = query.filter(Lead.id.in_(lead_ids))
-    else:
-        # Default to leads that are approved or in draft state
-        query = query.filter(Lead.outreach_status.in_(["approved", "draft"]))
 
     leads = query.all()
 

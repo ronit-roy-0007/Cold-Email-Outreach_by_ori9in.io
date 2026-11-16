@@ -341,11 +341,10 @@ def dispatch_subcampaign_batch(
         db.query(Lead, Business)
         .join(Business, Lead.business_id == Business.id)
         .filter(Lead.campaign_id == campaign_id)
+        .filter(Lead.outreach_status == "approved")
     )
     if lead_ids:
         query = query.filter(Lead.id.in_(lead_ids))
-    else:
-        query = query.filter(Lead.outreach_status.in_(["approved", "draft"]))
 
     query = query.order_by(Lead.overall_score.desc())
     candidates = query.all()

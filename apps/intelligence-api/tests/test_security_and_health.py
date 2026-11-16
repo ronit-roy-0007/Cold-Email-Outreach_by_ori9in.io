@@ -95,28 +95,59 @@ def test_in_memory_rate_limiter():
 
 
 def test_compliance_webhook_bounce_and_complaint(client, db_session):
-    # Register a bounce via webhook
-    bounce_payload = {
-        "email": "victim_bounced@example.com",
-        "event": "bounce",
-        "reason": "550 5.1.1 User unknown"
-    }
-    r_bounce = client.post("/api/outreach/webhook/event", json=bounce_payload)
-    assert r_bounce.status_code == 200
-    assert r_bounce.json()["status"] == "success"
-    assert r_bounce.json()["suppression_reason"] == "hard_bounce"
+    import hashlib
+    import hmac
+    import json
+    from app.config import get_settings, Settings
+    from app.main import app
 
-    # Verify database entry created in suppression_list
-    entry = db_session.query(SuppressionEntry).filter_by(email="victim_bounced@example.com").first()
-    assert entry is not None
-    assert entry.reason == "hard_bounce"
+    webhook_secret = "test-outreach-secret-1234"
+    test_settings = Settings(
+        APP_ENV="development",
+        DATABASE_URL="sqlite:///:memory:",
+        OUTREACH_WEBHOOK_SECRET=webhook_secret,
+    )
+    app.dependency_overrides[get_settings] = lambda: test_settings
 
-    # Register duplicate complaint -> should handle idempotently
-    complaint_payload = {
-        "email": "victim_bounced@example.com",
-        "event": "complaint",
-        "reason": "Spam flag by recipient"
-    }
-    r_complaint = client.post("/api/outreach/webhook/event", json=complaint_payload)
-    assert r_complaint.status_code == 200
-    assert r_complaint.json()["status"] == "success"
+    try:
+        # Register a bounce via signed webhook
+        bounce_payload = {
+            "email": "victim_bounced@example.com",
+            "event": "bounce",
+            "reason": "550 5.1.1 User unknown",
+        }
+        raw_bounce = json.dumps(bounce_payload).encode("utf-8")
+        sig_bounce = hmac.new(webhook_secret.encode("utf-8"), raw_bounce, hashlib.sha256).hexdigest()
+
+        r_bounce = client.post(
+            "/api/outreach/webhook/event",
+            content=raw_bounce,
+            headers={"content-type": "application/json", "x-signature-sha256": sig_bounce},
+        )
+        assert r_bounce.status_code == 200
+        assert r_bounce.json()["status"] == "success"
+        assert r_bounce.json()["suppression_reason"] == "hard_bounce"
+
+        # Verify database entry created in suppression_list
+        entry = db_session.query(SuppressionEntry).filter_by(email="victim_bounced@example.com").first()
+        assert entry is not None
+        assert entry.reason == "hard_bounce"
+
+        # Register duplicate complaint -> should handle idempotently
+        complaint_payload = {
+            "email": "victim_bounced@example.com",
+            "event": "complaint",
+            "reason": "Spam flag by recipient",
+        }
+        raw_complaint = json.dumps(complaint_payload).encode("utf-8")
+        sig_complaint = hmac.new(webhook_secret.encode("utf-8"), raw_complaint, hashlib.sha256).hexdigest()
+
+        r_complaint = client.post(
+            "/api/outreach/webhook/event",
+            content=raw_complaint,
+            headers={"content-type": "application/json", "x-signature-sha256": sig_complaint},
+        )
+        assert r_complaint.status_code == 200
+        assert r_complaint.json()["status"] in ("success", "duplicate")
+    finally:
+        app.dependency_overrides.clear()

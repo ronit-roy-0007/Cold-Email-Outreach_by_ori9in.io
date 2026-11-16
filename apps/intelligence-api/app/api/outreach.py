@@ -150,7 +150,7 @@ async def email_event_webhook_endpoint(
     if not email:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing required 'email' field in webhook payload")
 
-    # 1. Provider-Specific Cryptographic Signature Verification
+    # 1. Provider-Specific Cryptographic Signature Verification (Fail-Closed)
     if settings.RESEND_WEBHOOK_SECRET:
         from app.services.webhook_security import verify_resend_svix_signature
         is_valid, err = verify_resend_svix_signature(raw_body, request.headers, settings.RESEND_WEBHOOK_SECRET)
@@ -163,9 +163,17 @@ async def email_event_webhook_endpoint(
         is_valid, err = verify_hmac_webhook_signature(raw_body, sig or "", settings.OUTREACH_WEBHOOK_SECRET, timestamp=ts)
         if not is_valid:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid webhook HMAC signature: {err}")
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Webhook signature verification required: neither RESEND_WEBHOOK_SECRET nor OUTREACH_WEBHOOK_SECRET is configured.",
+        )
 
-    # 2. Replay Protection & Event Deduplication
+    # 2. Distributed Replay Protection & Event Deduplication
     from app.services.webhook_security import webhook_cache
+    if settings.REDIS_URL and webhook_cache._redis is None:
+        webhook_cache.init_redis(settings.REDIS_URL)
+
     event_id = data.get("id") or request.headers.get("svix-id") or request.headers.get("x-event-id") or f"{email}:{event}"
     if not webhook_cache.check_and_record(str(event_id)):
         return {

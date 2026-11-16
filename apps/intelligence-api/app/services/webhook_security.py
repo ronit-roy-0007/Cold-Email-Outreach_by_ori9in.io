@@ -3,17 +3,38 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import logging
 import time
 from typing import Mapping, Optional
+
+logger = logging.getLogger("intentlead.webhook_security")
 
 
 class WebhookReplayCache:
     """
-    In-memory TTL cache for deduplicating webhook events and preventing replay attacks.
+    Distributed & in-memory TTL cache for deduplicating webhook events and preventing replay attacks.
+    Uses Redis atomic SET key '1' EX ttl NX when Redis is configured for strict multi-worker consistency.
+    Falls back gracefully to local memory cache with structured logging when Redis is unavailable.
     """
-    def __init__(self, ttl_seconds: int = 600):
+    def __init__(self, ttl_seconds: int = 600, redis_client=None):
         self._events: dict[str, float] = {}
         self.default_ttl = ttl_seconds
+        self._redis = redis_client
+        self._redis_url = None
+
+    def init_redis(self, redis_url: str) -> None:
+        try:
+            import redis
+            self._redis_url = redis_url.strip()
+            self._redis = redis.Redis.from_url(
+                self._redis_url,
+                socket_timeout=1.5,
+                socket_connect_timeout=1.5,
+                decode_responses=True,
+            )
+        except Exception as exc:
+            logger.warning("Failed to initialize Redis client for webhook replay cache: %s", exc)
+            self._redis = None
 
     def check_and_record(self, event_id: str, ttl: Optional[int] = None) -> bool:
         """
@@ -22,13 +43,30 @@ class WebhookReplayCache:
         """
         if not event_id:
             return True
+
+        effective_ttl = ttl or self.default_ttl
+
+        # 1. Distributed Redis Check (Atomic SET key '1' EX ttl NX)
+        if self._redis is not None:
+            try:
+                redis_key = f"webhook_replay:{event_id}"
+                is_fresh = self._redis.set(redis_key, "1", ex=effective_ttl, nx=True)
+                return bool(is_fresh)
+            except Exception as exc:
+                logger.warning(
+                    "Distributed Redis replay cache error (%s); falling back to local memory cache for event %s",
+                    exc,
+                    event_id,
+                )
+
+        # 2. Local In-Memory Fallback
         now = time.time()
         self.prune(now)
 
         if event_id in self._events:
             return False
 
-        expire_at = now + (ttl or self.default_ttl)
+        expire_at = now + effective_ttl
         self._events[event_id] = expire_at
         return True
 
@@ -40,6 +78,13 @@ class WebhookReplayCache:
 
     def reset(self) -> None:
         self._events.clear()
+        if self._redis is not None:
+            try:
+                keys = self._redis.keys("webhook_replay:*")
+                if keys:
+                    self._redis.delete(*keys)
+            except Exception:
+                pass
 
 
 webhook_cache = WebhookReplayCache()

@@ -14,7 +14,7 @@ from app.api.campaigns import router as campaigns_router
 from app.api.leads import router as leads_router
 from app.api.orchestrator import router as orchestrator_router
 from app.api.outreach import router as outreach_router
-from app.config import get_settings, resolve_database_url
+from app.config import get_settings, resolve_database_url, validate_production_security
 from app.db import engine, get_session
 from app.models import Base
 from app.providers.mock_scraper import mock_scraper_router
@@ -27,6 +27,7 @@ logger = logging.getLogger("intentlead.api")
 async def lifespan(app: FastAPI):
     settings = get_settings()
     resolve_database_url(settings)
+    validate_production_security(settings)
     Base.metadata.create_all(bind=engine)
     yield
 
@@ -40,12 +41,13 @@ app = FastAPI(
 
 settings = get_settings()
 
-# 1. CORS Middleware
+# 1. CORS Middleware Hardening
 cors_origins = [o.strip() for o in (settings.CORS_ORIGINS or "*").split(",") if o.strip()]
+is_wildcard = cors_origins == ["*"]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins if cors_origins else ["*"],
-    allow_credentials=True,
+    allow_credentials=not is_wildcard,  # Spec requirement: never allow credentials with wildcard origin
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
