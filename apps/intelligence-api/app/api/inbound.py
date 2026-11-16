@@ -21,7 +21,9 @@ from app.config import Settings, get_settings
 from app.db import get_session
 from app.services.inbound_service import process_inbound_email
 from app.services.webhook_security import (
+    DistributedReplayUnavailableError,
     verify_hmac_webhook_signature,
+    verify_mailgun_webhook_signature,
     verify_resend_svix_signature,
     webhook_cache,
 )
@@ -100,6 +102,10 @@ async def inbound_email_webhook(
     headers_raw = ""
     event_id = None
 
+    mailgun_token = None
+    mailgun_timestamp = None
+    mailgun_signature = None
+
     # 1. Provider-Specific Payload Parsing
     if "application/json" in content_type:
         try:
@@ -109,6 +115,15 @@ async def inbound_email_webhook(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Invalid JSON payload: {exc}",
             )
+
+        # Mailgun JSON webhook format
+        if "signature" in data and isinstance(data["signature"], dict):
+            mg_sig = data["signature"]
+            mailgun_token = mg_sig.get("token")
+            mailgun_timestamp = str(mg_sig.get("timestamp") or "")
+            mailgun_signature = mg_sig.get("signature")
+            if mailgun_token:
+                event_id = mailgun_token
 
         # Resend / Svix Webhook Format
         if "data" in data and isinstance(data["data"], dict):
@@ -121,7 +136,31 @@ async def inbound_email_webhook(
             provider_message_id = resend_data.get("message_id") or resend_data.get("id")
             in_reply_to = resend_data.get("in_reply_to")
             references = resend_data.get("references")
-            headers_raw = str(resend_data.get("headers") or "")
+            
+            # Extract RFC headers if structured in Resend
+            h_obj = resend_data.get("headers")
+            if isinstance(h_obj, list):
+                for item in h_obj:
+                    if isinstance(item, dict):
+                        n = (item.get("name") or "").lower()
+                        v = item.get("value") or ""
+                        if n == "in-reply-to" and not in_reply_to:
+                            in_reply_to = v.strip("<>")
+                        elif n == "references" and not references:
+                            references = v
+                        elif n == "message-id" and not provider_message_id:
+                            provider_message_id = v.strip("<>")
+            elif isinstance(h_obj, dict):
+                for k, v in h_obj.items():
+                    k_low = k.lower()
+                    if k_low == "in-reply-to" and not in_reply_to:
+                        in_reply_to = str(v).strip("<>")
+                    elif k_low == "references" and not references:
+                        references = str(v)
+                    elif k_low == "message-id" and not provider_message_id:
+                        provider_message_id = str(v).strip("<>")
+            else:
+                headers_raw = str(h_obj or "")
         else:
             # Generic JSON Webhook Format
             sender_email = data.get("from") or data.get("sender") or data.get("sender_email") or ""
@@ -134,7 +173,8 @@ async def inbound_email_webhook(
             headers_raw = str(data.get("headers") or "")
 
         event_id = (
-            data.get("id")
+            event_id
+            or data.get("id")
             or request.headers.get("svix-id")
             or request.headers.get("x-event-id")
             or provider_message_id
@@ -145,12 +185,20 @@ async def inbound_email_webhook(
         sender_email = str(form.get("from") or form.get("sender") or "")
         recipient_email = str(form.get("to") or form.get("recipient") or recipient_email)
         subject = str(form.get("subject") or subject)
-        body = str(form.get("text") or form.get("body") or form.get("html") or form.get("stripped-text") or "")
-        in_reply_to = str(form.get("in-reply-to") or "") or None
-        references = str(form.get("references") or "") or None
-        provider_message_id = str(form.get("message-id") or "") or None
-        headers_raw = str(form.get("headers") or "")
-        event_id = str(form.get("token") or form.get("id") or provider_message_id or "")
+        body = str(form.get("text") or form.get("body") or form.get("html") or form.get("stripped-text") or form.get("body-plain") or "")
+        in_reply_to = str(form.get("in-reply-to") or form.get("In-Reply-To") or "") or None
+        references = str(form.get("references") or form.get("References") or "") or None
+        provider_message_id = str(form.get("message-id") or form.get("Message-Id") or "") or None
+        headers_raw = str(form.get("headers") or form.get("message-headers") or "")
+        
+        # Mailgun parameters
+        mailgun_token = form.get("token")
+        mailgun_timestamp = form.get("timestamp")
+        mailgun_signature = form.get("signature")
+        if mailgun_token:
+            event_id = str(mailgun_token)
+        else:
+            event_id = str(form.get("id") or provider_message_id or "")
 
     # 2. RFC 2822 Header Fallback Extraction (SendGrid / Mailgun raw header block)
     if headers_raw:
@@ -169,7 +217,9 @@ async def inbound_email_webhook(
 
     # 3. Cryptographic Signature Verification (Fail-Closed in Production)
     has_svix_headers = "svix-id" in request.headers and "svix-signature" in request.headers
+    has_mailgun_sig = bool(mailgun_token and mailgun_timestamp and mailgun_signature)
     has_hmac_headers = "x-webhook-signature" in request.headers or "x-signature-sha256" in request.headers
+    auth_token = request.query_params.get("token") or request.headers.get("x-webhook-secret")
 
     if has_svix_headers:
         secret = settings.RESEND_WEBHOOK_SECRET
@@ -186,6 +236,33 @@ async def inbound_email_webhook(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail=f"Invalid Resend Svix webhook signature: {err}",
                 )
+    elif has_mailgun_sig:
+        secret = settings.MAILGUN_WEBHOOK_SIGNING_KEY or settings.OUTREACH_WEBHOOK_SECRET
+        if not secret:
+            if settings.APP_ENV == "production":
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Mailgun verification failed: MAILGUN_WEBHOOK_SIGNING_KEY is not configured.",
+                )
+        else:
+            is_valid, err = verify_mailgun_webhook_signature(
+                str(mailgun_token),
+                str(mailgun_timestamp),
+                str(mailgun_signature),
+                secret,
+            )
+            if not is_valid:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail=f"Invalid Mailgun webhook signature: {err}",
+                )
+    elif auth_token and settings.OUTREACH_WEBHOOK_SECRET:
+        import hmac
+        if not hmac.compare_digest(auth_token.strip(), settings.OUTREACH_WEBHOOK_SECRET.strip()):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid webhook authentication token.",
+            )
     elif has_hmac_headers or settings.OUTREACH_WEBHOOK_SECRET:
         secret = settings.OUTREACH_WEBHOOK_SECRET
         if not secret:
@@ -214,7 +291,21 @@ async def inbound_email_webhook(
         webhook_cache.init_redis(settings.REDIS_URL)
 
     effective_event_id = event_id or f"{sender_email}:{provider_message_id or uuid.uuid4().hex}"
-    if not webhook_cache.check_and_record(str(effective_event_id)):
+    is_prod = settings.APP_ENV == "production"
+
+    try:
+        is_fresh = webhook_cache.check_and_record(
+            str(effective_event_id),
+            is_production=is_prod,
+        )
+    except DistributedReplayUnavailableError as exc:
+        logger.error("Fail-closed: Distributed replay protection unavailable: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Webhook ingestion unavailable: Distributed replay protection cannot be guaranteed in production.",
+        )
+
+    if not is_fresh:
         return {
             "status": "duplicate",
             "message": "Webhook event already processed (idempotent ignore)",

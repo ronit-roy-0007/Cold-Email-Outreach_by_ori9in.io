@@ -60,6 +60,7 @@ class Settings(BaseSettings):
     FIELD_ENCRYPTION_KEY: str = ""
     OUTREACH_WEBHOOK_SECRET: str = ""
     RESEND_WEBHOOK_SECRET: str = ""
+    MAILGUN_WEBHOOK_SIGNING_KEY: str = ""
     REDIS_URL: str = ""
     TRUSTED_PROXIES: str = "127.0.0.1,::1"
 
