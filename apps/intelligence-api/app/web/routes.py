@@ -10,6 +10,7 @@ import uuid
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel
 from sqlalchemy import desc, func
 from sqlalchemy.orm import Session
 
@@ -20,9 +21,12 @@ from app.models import (
     AuditLog,
     Business,
     Campaign,
+    Conversation,
+    ConversationMessage,
     DailyDispatchQuota,
     DimensionScore,
     Evidence,
+    FollowUpExecution,
     Lead,
     MailboxAccount,
     MessageDraft,
@@ -31,9 +35,12 @@ from app.models import (
     ScrapeJob,
     ServiceScore,
     SuppressionEntry,
+    utc_now,
 )
 from app.services.campaigns import create_campaign, get_campaign, list_campaigns
 from app.services.crypto import encrypt_credential
+from app.services.followup_engine import pause_followups, resume_followups
+from app.services.operator_reply import send_operator_reply
 from app.services.pipeline import run_campaign
 from app.services.social import get_business_social_links, get_lead_messages, sanitize_website
 from app.services.telegram_bot import record_approval
@@ -47,9 +54,11 @@ web_router = APIRouter(tags=["web"])
 
 def get_common_context(db: Session, active_nav: str, settings: Settings) -> dict[str, Any]:
     pending_count = db.query(Lead).filter_by(outreach_status="draft").count()
+    unread_inbox_count = db.query(func.coalesce(func.sum(Conversation.unread_count), 0)).scalar()
     return {
         "active_nav": active_nav,
         "pending_count": pending_count,
+        "unread_inbox_count": int(unread_inbox_count or 0),
         "dry_run": settings.OUTREACH_DRY_RUN,
         "app_env": settings.APP_ENV,
         "agency_name": settings.AGENCY_NAME,
@@ -80,6 +89,12 @@ def overview_dashboard(
     total_campaigns = db.query(Campaign).count()
     total_suppressed = db.query(SuppressionEntry).count()
 
+    # Conversation & Follow-up Telemetry
+    total_conversations = db.query(Conversation).count()
+    total_replies = db.query(Conversation).filter(Conversation.status == "replied").count()
+    reply_rate = round((total_replies / total_conversations * 100), 1) if total_conversations > 0 else 0.0
+    active_followups = db.query(FollowUpExecution).filter(FollowUpExecution.status == "scheduled").count()
+
     # Recent Campaigns (up to 5)
     recent_campaigns = db.query(Campaign).order_by(desc(Campaign.created_at)).limit(5).all()
 
@@ -103,6 +118,10 @@ def overview_dashboard(
         "simulated_dispatched": simulated_dispatched,
         "total_campaigns": total_campaigns,
         "total_suppressed": total_suppressed,
+        "total_conversations": total_conversations,
+        "total_replies": total_replies,
+        "reply_rate": reply_rate,
+        "active_followups": active_followups,
         "recent_campaigns": recent_campaigns,
         "recent_audits": recent_audits,
         "recent_approvals": recent_approvals,
@@ -524,6 +543,15 @@ def analytics_view(
     failed = sum(1 for m in dispatches if m.status == "failed")
     bounced = sum(1 for m in dispatches if m.status == "bounced")
 
+    # Conversation and follow-up metrics
+    total_conversations = db.query(Conversation).count()
+    replied_count = db.query(Conversation).filter(Conversation.status == "replied").count()
+    reply_rate = round((replied_count / max(1, total_conversations)) * 100, 1)
+
+    followups_scheduled = db.query(FollowUpExecution).filter(FollowUpExecution.status == "scheduled").count()
+    followups_executed = db.query(FollowUpExecution).filter(FollowUpExecution.status == "executed").count()
+    followups_cancelled = db.query(FollowUpExecution).filter(FollowUpExecution.status == "cancelled").count()
+
     ctx.update({
         "total_businesses": total_businesses,
         "total_leads": total_leads,
@@ -536,6 +564,12 @@ def analytics_view(
         "sent_count": sent,
         "failed_count": failed,
         "bounced_count": bounced,
+        "total_conversations": total_conversations,
+        "replied_count": replied_count,
+        "reply_rate": reply_rate,
+        "followups_scheduled": followups_scheduled,
+        "followups_executed": followups_executed,
+        "followups_cancelled": followups_cancelled,
     })
 
     return templates.TemplateResponse(request=request, name="analytics.html", context=ctx)
@@ -639,3 +673,279 @@ def settings_view(
     })
 
     return templates.TemplateResponse(request=request, name="settings.html", context=ctx)
+
+
+# ==============================================================================
+# 10. UNIFIED INBOX & CONVERSATION MANAGEMENT
+# ==============================================================================
+
+@web_router.get("/inbox", response_class=HTMLResponse)
+def inbox_view(
+    request: Request,
+    conversation_id: str | None = None,
+    db: Session = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+):
+    ctx = get_common_context(db, "inbox", settings)
+    campaigns = db.query(Campaign).order_by(desc(Campaign.created_at)).all()
+
+    total_convs = db.query(Conversation).count()
+    unread_convs = db.query(Conversation).filter(Conversation.unread_count > 0).count()
+    replied_convs = db.query(Conversation).filter(Conversation.status == "replied").count()
+    active_convs = db.query(Conversation).filter(Conversation.status == "active").count()
+
+    ctx.update({
+        "campaigns": campaigns,
+        "total_convs": total_convs,
+        "unread_convs": unread_convs,
+        "replied_convs": replied_convs,
+        "active_convs": active_convs,
+        "initial_conversation_id": conversation_id or "",
+    })
+    return templates.TemplateResponse(request=request, name="inbox.html", context=ctx)
+
+
+@web_router.get("/api/web/inbox/conversations")
+def api_list_conversations(
+    q: str | None = None,
+    status: str | None = None,
+    campaign_id: str | None = None,
+    unread_only: bool = False,
+    db: Session = Depends(get_session),
+):
+    query = (
+        db.query(Conversation, Business, Campaign, Lead)
+        .outerjoin(Business, Conversation.business_id == Business.id)
+        .outerjoin(Campaign, Conversation.campaign_id == Campaign.id)
+        .outerjoin(Lead, Conversation.lead_id == Lead.id)
+    )
+
+    if q and q.strip():
+        term = f"%{q.strip()}%"
+        query = query.filter(
+            Conversation.recipient_email.ilike(term)
+            | Conversation.subject.ilike(term)
+            | Business.name.ilike(term)
+        )
+
+    if status and status.strip() and status.strip().lower() != "all":
+        query = query.filter(Conversation.status == status.strip().lower())
+
+    if campaign_id and campaign_id.strip() and campaign_id.strip().lower() != "all":
+        try:
+            cid = uuid.UUID(campaign_id.strip())
+            query = query.filter(Conversation.campaign_id == cid)
+        except Exception:
+            pass
+
+    if unread_only:
+        query = query.filter(Conversation.unread_count > 0)
+
+    results = query.order_by(desc(Conversation.last_message_at)).limit(100).all()
+
+    items = []
+    for conv, biz, camp, lead in results:
+        latest_msg = (
+            db.query(ConversationMessage)
+            .filter_by(conversation_id=conv.id)
+            .order_by(desc(ConversationMessage.created_at))
+            .first()
+        )
+        snippet = latest_msg.body[:120] if latest_msg else ""
+        direction = latest_msg.direction if latest_msg else "outbound"
+
+        items.append({
+            "id": str(conv.id),
+            "recipient_email": conv.recipient_email,
+            "subject": conv.subject,
+            "status": conv.status,
+            "unread_count": conv.unread_count,
+            "followup_status": conv.followup_status,
+            "followup_step": conv.followup_step,
+            "last_message_at": conv.last_message_at.isoformat() if conv.last_message_at else "",
+            "business_name": biz.name if biz else (conv.recipient_email.split("@")[0].capitalize()),
+            "lead_id": str(lead.id) if lead else None,
+            "lead_score": lead.overall_score if lead else None,
+            "campaign_name": camp.niche if camp else "Direct Outreach",
+            "snippet": snippet,
+            "direction": direction,
+        })
+
+    return {"conversations": items, "count": len(items)}
+
+
+@web_router.get("/api/web/inbox/conversations/{conversation_id}")
+def api_get_conversation_detail(
+    conversation_id: uuid.UUID,
+    db: Session = Depends(get_session),
+):
+    conv = db.get(Conversation, conversation_id)
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    biz = db.get(Business, conv.business_id) if conv.business_id else None
+    camp = db.get(Campaign, conv.campaign_id) if conv.campaign_id else None
+    lead = db.get(Lead, conv.lead_id) if conv.lead_id else None
+
+    # Automatically mark conversation as read upon retrieval
+    if conv.unread_count > 0:
+        conv.unread_count = 0
+        conv.updated_at = utc_now()
+        db.commit()
+
+    messages = (
+        db.query(ConversationMessage)
+        .filter_by(conversation_id=conv.id)
+        .order_by(ConversationMessage.created_at.asc())
+        .all()
+    )
+
+    followups = (
+        db.query(FollowUpExecution)
+        .filter_by(conversation_id=conv.id)
+        .order_by(FollowUpExecution.sequence_step.asc())
+        .all()
+    )
+
+    lead_gaps = []
+    if lead:
+        dim_scores = db.query(DimensionScore).filter_by(lead_id=lead.id).all()
+        for ds in dim_scores:
+            if ds.points < ds.max_points:
+                lead_gaps.append({
+                    "dimension": ds.dimension,
+                    "score": ds.points,
+                    "summary": ds.reason_code.replace("_", " ").title(),
+                })
+
+    return {
+        "conversation": {
+            "id": str(conv.id),
+            "recipient_email": conv.recipient_email,
+            "sender_email": conv.sender_email,
+            "subject": conv.subject,
+            "status": conv.status,
+            "unread_count": conv.unread_count,
+            "followup_status": conv.followup_status,
+            "followup_step": conv.followup_step,
+            "created_at": conv.created_at.isoformat(),
+            "last_message_at": conv.last_message_at.isoformat(),
+        },
+        "business": {
+            "id": str(biz.id) if biz else None,
+            "name": biz.name if biz else (conv.recipient_email.split("@")[0].capitalize()),
+            "website": biz.website if biz else None,
+            "phone": biz.phone if biz else None,
+            "locality": biz.locality if biz else None,
+            "address": biz.address if biz else None,
+            "rating": biz.rating if biz else None,
+        } if biz else None,
+        "lead": {
+            "id": str(lead.id) if lead else None,
+            "overall_score": lead.overall_score if lead else None,
+            "recommended_service": lead.recommended_service if lead else None,
+            "audit_notes": getattr(lead, "audit_notes", None) or (f"Priority: {lead.priority}, Confidence: {lead.confidence}." if lead else None),
+            "gaps": lead_gaps,
+        } if lead else None,
+        "campaign": {
+            "id": str(camp.id) if camp else None,
+            "niche": camp.niche if camp else None,
+            "location": camp.location if camp else None,
+        } if camp else None,
+        "messages": [
+            {
+                "id": str(m.id),
+                "direction": m.direction,
+                "message_type": m.message_type,
+                "sender": m.sender,
+                "recipient": m.recipient,
+                "subject": m.subject,
+                "body": m.body,
+                "delivery_status": m.delivery_status,
+                "created_at": m.created_at.isoformat(),
+            }
+            for m in messages
+        ],
+        "followups": [
+            {
+                "id": str(f.id),
+                "sequence_step": f.sequence_step,
+                "scheduled_at": f.scheduled_at.isoformat(),
+                "executed_at": f.executed_at.isoformat() if f.executed_at else None,
+                "status": f.status,
+                "stop_reason": f.stop_reason,
+            }
+            for f in followups
+        ],
+    }
+
+
+class OperatorReplyForm(BaseModel):
+    body: str
+    subject: str | None = None
+    pause_followups: bool = True
+
+
+@web_router.post("/api/web/inbox/conversations/{conversation_id}/reply")
+def api_send_operator_reply(
+    conversation_id: uuid.UUID,
+    payload: OperatorReplyForm,
+    db: Session = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+):
+    if not payload.body or not payload.body.strip():
+        raise HTTPException(status_code=400, detail="Reply body cannot be empty")
+
+    result = send_operator_reply(
+        db,
+        settings,
+        conversation_id=conversation_id,
+        reply_body=payload.body.strip(),
+        subject=payload.subject,
+        pause_followups=payload.pause_followups,
+    )
+    return {"status": "success", "result": result}
+
+
+class ConversationActionForm(BaseModel):
+    action: str  # mark_read, mark_unread, pause_followups, resume_followups, set_status, archive
+    value: str | None = None
+
+
+@web_router.post("/api/web/inbox/conversations/{conversation_id}/actions")
+def api_conversation_action(
+    conversation_id: uuid.UUID,
+    payload: ConversationActionForm,
+    db: Session = Depends(get_session),
+):
+    conv = db.get(Conversation, conversation_id)
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    act = payload.action.lower().strip()
+    if act == "mark_read":
+        conv.unread_count = 0
+    elif act == "mark_unread":
+        conv.unread_count = max(1, conv.unread_count + 1)
+    elif act == "pause_followups":
+        pause_followups(db, conv.id)
+    elif act == "resume_followups":
+        resume_followups(db, conv.id)
+    elif act == "set_status":
+        if payload.value:
+            conv.status = payload.value.strip().lower()
+    elif act == "archive":
+        conv.status = "archived"
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown action: {payload.action}")
+
+    conv.updated_at = utc_now()
+    db.commit()
+    return {
+        "status": "success",
+        "action": act,
+        "conversation_status": conv.status,
+        "unread_count": conv.unread_count,
+        "followup_status": conv.followup_status,
+    }
+

@@ -13,6 +13,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.api.campaigns import router as campaigns_router
+from app.api.inbound import router as inbound_router
 from app.api.leads import router as leads_router
 from app.api.orchestrator import router as orchestrator_router
 from app.api.outreach import router as outreach_router
@@ -117,6 +118,7 @@ def health_ready(db: Session = Depends(get_session)) -> dict[str, Any]:
 # 4. Register API Routers
 app.include_router(mock_scraper_router)
 app.include_router(campaigns_router)
+app.include_router(inbound_router)
 app.include_router(leads_router)
 app.include_router(orchestrator_router)
 app.include_router(outreach_router)

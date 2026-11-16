@@ -17,7 +17,7 @@ from sqlalchemy import (
     UniqueConstraint,
     Uuid,
 )
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
 def utc_now() -> datetime:
@@ -49,6 +49,7 @@ class Campaign(Base):
     is_exhausted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     radius_expanded: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     expanded_locations: Mapped[Any | None] = mapped_column(JSON, nullable=True, default=list)
+    followup_sequence: Mapped[Any | None] = mapped_column(JSON, nullable=True, default=dict)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utc_now
     )
@@ -380,6 +381,125 @@ class CampaignLeftoverLead(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utc_now
     )
+
+
+class Conversation(Base):
+    __tablename__ = "conversations"
+    __table_args__ = (
+        Index("ix_conversations_lead_id", "lead_id"),
+        Index("ix_conversations_campaign_id", "campaign_id"),
+        Index("ix_conversations_recipient", "recipient_email"),
+        Index("ix_conversations_status", "status"),
+        Index("ix_conversations_last_msg", "last_message_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    lead_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("leads.id", ondelete="SET NULL"), nullable=True
+    )
+    campaign_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("campaigns.id", ondelete="SET NULL"), nullable=True
+    )
+    business_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("businesses.id", ondelete="SET NULL"), nullable=True
+    )
+    recipient_email: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    sender_email: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    subject: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="active")  # active, replied, closed, archived
+    unread_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_message_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utc_now
+    )
+    followup_status: Mapped[str] = mapped_column(String, nullable=False, default="idle")  # idle, scheduled, paused, completed, cancelled
+    followup_step: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utc_now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utc_now
+    )
+
+    messages: Mapped[list["ConversationMessage"]] = relationship(
+        "ConversationMessage", back_populates="conversation", cascade="all, delete-orphan", order_by="ConversationMessage.created_at"
+    )
+    followup_executions: Mapped[list["FollowUpExecution"]] = relationship(
+        "FollowUpExecution", back_populates="conversation", cascade="all, delete-orphan"
+    )
+    lead: Mapped["Lead | None"] = relationship("Lead", foreign_keys=[lead_id])
+    campaign: Mapped["Campaign | None"] = relationship("Campaign", foreign_keys=[campaign_id])
+    business: Mapped["Business | None"] = relationship("Business", foreign_keys=[business_id])
+
+
+class ConversationMessage(Base):
+    __tablename__ = "conversation_messages"
+    __table_args__ = (
+        Index("ix_conv_msg_conversation_id", "conversation_id"),
+        Index("ix_conv_msg_provider_msg_id", "provider_message_id"),
+        Index("ix_conv_msg_in_reply_to", "in_reply_to"),
+        Index("ix_conv_msg_created_at", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
+    )
+    direction: Mapped[str] = mapped_column(String, nullable=False)  # inbound, outbound
+    message_type: Mapped[str] = mapped_column(String, nullable=False)  # initial_email, followup, prospect_reply, operator_reply
+    sender: Mapped[str] = mapped_column(String, nullable=False)
+    recipient: Mapped[str] = mapped_column(String, nullable=False)
+    subject: Mapped[str] = mapped_column(String, nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    provider_message_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    in_reply_to: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    references: Mapped[str | None] = mapped_column(Text, nullable=True)
+    delivery_status: Mapped[str] = mapped_column(String, nullable=False, default="sent")  # sent, simulated, delivered, received
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utc_now
+    )
+
+    conversation: Mapped["Conversation"] = relationship("Conversation", back_populates="messages")
+
+
+class FollowUpExecution(Base):
+    __tablename__ = "followup_executions"
+    __table_args__ = (
+        Index("ix_followup_conv_status", "conversation_id", "status"),
+        Index("ix_followup_sched", "scheduled_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
+    )
+    campaign_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("campaigns.id", ondelete="SET NULL"), nullable=True
+    )
+    lead_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("leads.id", ondelete="SET NULL"), nullable=True
+    )
+    sequence_step: Mapped[int] = mapped_column(Integer, nullable=False)
+    scheduled_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    executed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    status: Mapped[str] = mapped_column(String, nullable=False, default="scheduled")  # scheduled, executed, cancelled, paused, failed
+    stop_reason: Mapped[str | None] = mapped_column(String, nullable=True)
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utc_now
+    )
+
+    conversation: Mapped["Conversation"] = relationship("Conversation", back_populates="followup_executions")
+
 
 
 

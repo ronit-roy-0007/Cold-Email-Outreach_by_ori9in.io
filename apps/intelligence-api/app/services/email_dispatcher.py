@@ -164,6 +164,62 @@ def send_google_workspace_email(
         server.quit()
 
 
+
+def _record_conversation_and_schedule_followups(
+    db: Session,
+    lead: Lead,
+    biz: Business,
+    outbound: OutboundMessage,
+    eff_sender_email: str,
+    eff_subject: str,
+    compliant_body: str,
+) -> None:
+    try:
+        from app.models import Campaign, Conversation, ConversationMessage
+        from app.services.followup_engine import schedule_followups_for_conversation
+
+        conv = db.query(Conversation).filter_by(lead_id=lead.id).first()
+        if not conv:
+            conv = Conversation(
+                lead_id=lead.id,
+                campaign_id=lead.campaign_id,
+                business_id=lead.business_id,
+                recipient_email=outbound.recipient_email,
+                sender_email=eff_sender_email,
+                subject=eff_subject,
+                status="active",
+                unread_count=0,
+                followup_status="idle",
+                followup_step=0,
+                last_message_at=utc_now(),
+            )
+            db.add(conv)
+            db.flush()
+
+        msg_id = f"<{uuid.uuid4()}@{eff_sender_email.split('@')[-1]}>"
+        conv_msg = ConversationMessage(
+            conversation_id=conv.id,
+            direction="outbound",
+            message_type="initial_email",
+            sender=eff_sender_email,
+            recipient=outbound.recipient_email,
+            subject=eff_subject,
+            body=compliant_body,
+            provider_message_id=msg_id,
+            delivery_status=outbound.status,
+            created_at=utc_now(),
+        )
+        db.add(conv_msg)
+        db.flush()
+
+        if lead.campaign_id:
+            campaign = db.query(Campaign).filter_by(id=lead.campaign_id).first()
+            if campaign and campaign.followup_sequence:
+                schedule_followups_for_conversation(db, conv, campaign)
+    except Exception as exc:
+        pass
+
+
 def dispatch_single_email(
     db: Session,
     lead: Lead,
@@ -273,6 +329,9 @@ def dispatch_single_email(
         outbound.error_message = "Dry-run simulation: email recorded and validated without sending live message."
         lead.outreach_status = "simulated"
         db.flush()
+        _record_conversation_and_schedule_followups(
+            db, lead, biz, outbound, eff_sender_email, eff_subject, compliant_body
+        )
         return outbound
 
     # Live Dispatch via selected provider
@@ -314,6 +373,9 @@ def dispatch_single_email(
         outbound.dispatched_at = utc_now()
         lead.outreach_status = "sent"
         db.flush()
+        _record_conversation_and_schedule_followups(
+            db, lead, biz, outbound, eff_sender_email, eff_subject, compliant_body
+        )
     except Exception as exc:
         outbound.status = "failed"
         outbound.error_message = str(exc)

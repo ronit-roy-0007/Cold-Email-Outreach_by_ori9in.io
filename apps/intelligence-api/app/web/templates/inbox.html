@@ -1,0 +1,762 @@
+{% extends "base.html" %}
+
+{% block title %}Unified Inbox — IntentLead AI{% endblock %}
+
+{% block extra_head %}
+<style>
+  .inbox-stat-badge {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    padding: 0.2rem 0.5rem;
+    border-radius: 3px;
+    border: 1px solid var(--border-color);
+    background: #FFFFFF;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="view-header">
+  <div>
+    <div class="micro-label" style="color: var(--text-muted); margin-bottom: 0.25rem;">CONVERSATIONS & ENGAGEMENT</div>
+    <h1 style="font-size: 1.6rem; display: flex; align-items: center; gap: 0.6rem;">
+      <span style="color: var(--accent-lime); background: var(--bg-sidebar); border-radius: 4px; padding: 0.15rem 0.45rem; font-size: 1.15rem;">💬</span>
+      Unified Inbox
+    </h1>
+    <p style="color: var(--text-muted); font-size: 0.88rem; margin-top: 0.2rem;">
+      Real-time prospect communications, inbound reply tracking, automated follow-up governance, and operator replies.
+    </p>
+  </div>
+  <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+    <span class="inbox-stat-badge"><strong>{{ total_convs }}</strong> Total Threads</span>
+    <span class="inbox-stat-badge" style="background: var(--accent-lime-tint); border-color: var(--accent-lime);"><strong>{{ unread_convs }}</strong> Unread</span>
+    <span class="inbox-stat-badge" style="background: var(--accent-mint-tint); border-color: var(--accent-mint);"><strong>{{ replied_convs }}</strong> Replied</span>
+    <button class="btn btn-secondary btn-sm" onclick="openSimulateModal()">
+      ⚡ Simulate Prospect Reply
+    </button>
+  </div>
+</div>
+
+<!-- Main 3-Panel Inbox Workspace -->
+<div class="inbox-workspace" id="inbox-workspace">
+
+  <!-- ==========================================
+       PANEL 1: CONVERSATION LIST
+       ========================================== -->
+  <div class="inbox-list-panel" id="inbox-list-panel">
+    <div class="inbox-list-header">
+      <input 
+        type="text" 
+        id="conv-search" 
+        class="inbox-search-box" 
+        placeholder="🔍 Search prospect, email, subject..." 
+        oninput="handleSearchInput(event)"
+      />
+      <div class="inbox-filter-pills">
+        <button class="inbox-pill active" data-status="all" onclick="filterByStatus('all', this)">All</button>
+        <button class="inbox-pill" data-status="unread" onclick="filterByStatus('unread', this)">Unread</button>
+        <button class="inbox-pill" data-status="replied" onclick="filterByStatus('replied', this)">Replied</button>
+        <button class="inbox-pill" data-status="active" onclick="filterByStatus('active', this)">Active</button>
+        <button class="inbox-pill" data-status="archived" onclick="filterByStatus('archived', this)">Archived</button>
+      </div>
+      <div style="display: flex; gap: 0.4rem; align-items: center;">
+        <select id="conv-campaign-filter" class="form-input" style="font-size: 0.78rem; padding: 0.3rem 0.5rem; font-family: var(--font-mono);" onchange="handleCampaignFilter(event)">
+          <option value="all">All Campaigns</option>
+          {% for camp in campaigns %}
+            <option value="{{ camp.id }}">{{ camp.niche }} ({{ camp.location }})</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <!-- Scrollable Conversation Items Container -->
+    <div class="inbox-items-scroll" id="conversation-items-container">
+      <div style="padding: 2rem 1rem; text-align: center; color: var(--text-muted); font-size: 0.85rem;">
+        Loading conversations...
+      </div>
+    </div>
+  </div>
+
+  <!-- ==========================================
+       PANEL 2: CONVERSATION TIMELINE & COMPOSER
+       ========================================== -->
+  <div class="inbox-timeline-panel" id="inbox-timeline-panel">
+    
+    <!-- Empty State (No conversation selected) -->
+    <div id="timeline-empty-state" style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 3rem; text-align: center; color: var(--text-muted);">
+      <div style="font-size: 3rem; margin-bottom: 1rem; opacity: 0.4;">📬</div>
+      <h3 style="font-size: 1.1rem; color: var(--text-main); margin-bottom: 0.35rem;">Select a Conversation</h3>
+      <p style="font-size: 0.85rem; max-width: 320px;">Choose a prospect thread from the list on the left to review communication history, follow-up state, and send operator replies.</p>
+    </div>
+
+    <!-- Active Conversation View -->
+    <div id="timeline-active-view" style="display: none; flex-direction: column; height: 100%;">
+      
+      <!-- Timeline Header -->
+      <div class="inbox-timeline-header">
+        <div class="timeline-header-info">
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <button class="btn btn-secondary btn-sm" style="display: none;" id="mobile-back-btn" onclick="toggleMobileView('list')">← Back</button>
+            <h2 id="active-conv-biz-name" style="margin: 0; font-size: 1.15rem;">Prospect Business</h2>
+            <span id="active-conv-status-badge" class="badge">active</span>
+          </div>
+          <div class="timeline-header-sub" style="margin-top: 0.25rem;">
+            <span id="active-conv-email" style="color: var(--text-main); font-weight: 600;">email@prospect.com</span>
+            <span>•</span>
+            <span id="active-conv-campaign">Campaign Name</span>
+          </div>
+        </div>
+        <div class="timeline-actions">
+          <button class="btn btn-secondary btn-sm" id="btn-toggle-followup" onclick="toggleFollowupState()">
+            ⏸ Pause Follow-ups
+          </button>
+          <button class="btn btn-secondary btn-sm" onclick="archiveCurrentConversation()">
+            📦 Archive
+          </button>
+          <button class="btn btn-secondary btn-sm" id="btn-toggle-dossier" onclick="toggleDossierDrawer()">
+            👤 Dossier
+          </button>
+        </div>
+      </div>
+
+      <!-- Follow-Up Engine State Notice -->
+      <div style="padding: 0.5rem 1.25rem; background-color: var(--bg-surface-elevated); border-bottom: 1px solid var(--border-subtle);">
+        <div class="timeline-notice" id="followup-state-banner">
+          <div>
+            <span style="font-weight: 700;">FOLLOW-UP ENGINE:</span>
+            <span id="followup-banner-text" style="margin-left: 0.4rem; color: var(--text-main);">Sequence Active</span>
+          </div>
+          <div id="followup-steps-indicator" style="display: flex; gap: 0.35rem;"></div>
+        </div>
+      </div>
+
+      <!-- Message Timeline Scroll Area -->
+      <div class="timeline-messages-area" id="timeline-messages-container">
+        <!-- Messages will be rendered here dynamically -->
+      </div>
+
+      <!-- Operator Reply Composer -->
+      <div class="inbox-composer">
+        <div class="composer-toolbar">
+          <div style="font-family: var(--font-mono); font-size: 0.78rem; font-weight: 600; color: var(--text-muted);">
+            RESPOND AS OPERATOR: <span id="composer-sender-name" style="color: var(--text-main);">{{ sender_name }} ({{ agency_name }})</span>
+          </div>
+          <div style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--accent-amber); font-weight: 600;">
+            {% if dry_run %}⚡ DRY-RUN SIMULATION ACTIVE{% else %}🔴 LIVE SMTP DISPATCH{% endif %}
+          </div>
+        </div>
+        <input 
+          type="text" 
+          id="reply-subject" 
+          class="form-input" 
+          style="font-size: 0.85rem; padding: 0.4rem 0.6rem; font-family: var(--font-body);" 
+          placeholder="Subject..."
+        />
+        <textarea 
+          id="reply-body" 
+          class="composer-textarea" 
+          placeholder="Type your response to the prospect here..."
+        ></textarea>
+        <div class="composer-actions">
+          <label style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.82rem; cursor: pointer; color: var(--text-muted);">
+            <input type="checkbox" id="reply-pause-followups" checked />
+            <span>Pause automated follow-ups for this prospect</span>
+          </label>
+          <div style="display: flex; gap: 0.5rem;">
+            <button class="btn btn-secondary btn-sm" onclick="clearComposer()">Discard</button>
+            <button class="btn btn-primary" id="btn-send-reply" onclick="sendOperatorReply()" style="background: var(--accent-lime); color: var(--bg-sidebar); font-weight: 700;">
+              Send Operator Reply ➔
+            </button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+
+  <!-- ==========================================
+       PANEL 3: LEAD INTELLIGENCE DOSSIER
+       ========================================== -->
+  <div class="inbox-dossier-panel" id="inbox-dossier-panel">
+    
+    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1.5px solid var(--border-color); padding-bottom: 0.75rem;">
+      <div class="micro-label" style="color: var(--text-muted);">INTELLIGENCE DOSSIER</div>
+      <button class="btn btn-secondary btn-sm" style="display: none;" id="close-dossier-btn" onclick="toggleDossierDrawer()">✕</button>
+    </div>
+
+    <!-- Business Dossier Card -->
+    <div class="dossier-section">
+      <h3>Business Identity</h3>
+      <div class="dossier-row">
+        <span class="dossier-label">Name</span>
+        <span class="dossier-val" id="dossier-biz-name">—</span>
+      </div>
+      <div class="dossier-row">
+        <span class="dossier-label">Website</span>
+        <span class="dossier-val" id="dossier-biz-website">—</span>
+      </div>
+      <div class="dossier-row">
+        <span class="dossier-label">Email</span>
+        <span class="dossier-val" id="dossier-biz-email">—</span>
+      </div>
+      <div class="dossier-row">
+        <span class="dossier-label">Locality</span>
+        <span class="dossier-val" id="dossier-biz-locality">—</span>
+      </div>
+      <div class="dossier-row">
+        <span class="dossier-label">Phone</span>
+        <span class="dossier-val" id="dossier-biz-phone">—</span>
+      </div>
+    </div>
+
+    <!-- Scoring & Intent Card -->
+    <div class="dossier-section">
+      <h3>Intent & Evaluation</h3>
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem;">
+        <span style="font-size: 0.85rem; font-weight: 600;">Overall Lead Score</span>
+        <span id="dossier-lead-score" class="badge" style="font-size: 0.88rem; padding: 0.25rem 0.6rem;">—</span>
+      </div>
+      <div class="dossier-row">
+        <span class="dossier-label">Recommended</span>
+        <span class="dossier-val" id="dossier-recommended-service" style="color: var(--accent-blue);">—</span>
+      </div>
+    </div>
+
+    <!-- Identified Gaps Card -->
+    <div class="dossier-section">
+      <h3>Website Gaps Detected</h3>
+      <div id="dossier-gaps-container" style="display: flex; flex-direction: column; gap: 0.4rem; font-size: 0.8rem;">
+        <span style="color: var(--text-muted);">No critical gaps detected.</span>
+      </div>
+    </div>
+
+    <!-- Personalization Insights -->
+    <div class="dossier-section">
+      <h3>Audit Summary</h3>
+      <p id="dossier-audit-notes" style="font-size: 0.8rem; color: var(--text-muted); line-height: 1.45;">
+        Select a conversation to view detailed audit insights.
+      </p>
+    </div>
+
+    <!-- Deep Link to Full Lead Page -->
+    <div style="margin-top: auto; padding-top: 1rem;">
+      <a id="dossier-full-lead-link" href="#" class="btn btn-secondary" style="width: 100%; text-align: center; justify-content: center;" target="_blank">
+        Inspect Complete Lead Dossier ↗
+      </a>
+    </div>
+
+  </div>
+
+</div>
+
+<!-- Modal: Simulate Prospect Reply -->
+<div id="simulate-reply-modal" class="modal-backdrop">
+  <div class="modal-box" style="max-width: 520px;">
+    <div class="modal-header">
+      <h3 style="margin: 0; font-size: 1.1rem; display: flex; align-items: center; gap: 0.5rem;">
+        <span>⚡</span> Simulate Inbound Prospect Reply
+      </h3>
+      <button class="btn btn-secondary btn-sm" onclick="closeSimulateModal()">✕</button>
+    </div>
+    <div class="modal-body" style="padding: 1.25rem; display: flex; flex-direction: column; gap: 0.85rem;">
+      <p style="font-size: 0.85rem; color: var(--text-muted);">
+        Inject a simulated inbound prospect reply into the staging environment. This immediately triggers conversation resolution, transactional follow-up cancellation, and Telegram notification.
+      </p>
+      <div>
+        <label class="form-label">Prospect Sender Email</label>
+        <input type="email" id="sim-sender-email" class="form-input" placeholder="owner@business.com" />
+      </div>
+      <div>
+        <label class="form-label">Subject</label>
+        <input type="text" id="sim-subject" class="form-input" value="Re: Quick question about your website" />
+      </div>
+      <div>
+        <label class="form-label">Reply Message Body</label>
+        <textarea id="sim-body" class="form-input" style="min-height: 90px; resize: vertical;" placeholder="Hi, thanks for reaching out. What are your pricing plans? Can we schedule a call next Tuesday?"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeSimulateModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="submitSimulateReply()" style="background: var(--accent-lime); color: var(--bg-sidebar); font-weight: 700;">
+        Simulate Inbound Reply ➔
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+  let activeConversationId = "{{ initial_conversation_id }}";
+  let currentFilter = {
+    status: 'all',
+    q: '',
+    campaign_id: 'all',
+    unread_only: false
+  };
+  let currentConversationData = null;
+
+  document.addEventListener('DOMContentLoaded', () => {
+    loadConversations();
+    if (activeConversationId) {
+      selectConversation(activeConversationId);
+    }
+  });
+
+  async function loadConversations() {
+    const container = document.getElementById('conversation-items-container');
+    try {
+      const params = new URLSearchParams();
+      if (currentFilter.q) params.set('q', currentFilter.q);
+      if (currentFilter.status && currentFilter.status !== 'all') params.set('status', currentFilter.status);
+      if (currentFilter.campaign_id && currentFilter.campaign_id !== 'all') params.set('campaign_id', currentFilter.campaign_id);
+      if (currentFilter.unread_only) params.set('unread_only', 'true');
+
+      const res = await fetch(`/api/web/inbox/conversations?${params.toString()}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      
+      renderConversationList(data.conversations || []);
+    } catch (err) {
+      container.innerHTML = `<div style="padding: 2rem 1rem; text-align: center; color: var(--accent-red); font-size: 0.85rem;">Failed to load conversations: ${err.message}</div>`;
+    }
+  }
+
+  function renderConversationList(conversations) {
+    const container = document.getElementById('conversation-items-container');
+    if (!conversations.length) {
+      container.innerHTML = `
+        <div style="padding: 3rem 1.5rem; text-align: center; color: var(--text-muted); font-size: 0.85rem;">
+          <div style="font-size: 2rem; margin-bottom: 0.5rem; opacity: 0.5;">📭</div>
+          <div style="font-weight: 600; color: var(--text-main);">No conversations found</div>
+          <p style="margin-top: 0.25rem;">Dispatched outreach messages and prospect replies will appear here.</p>
+        </div>
+      `;
+      return;
+    }
+
+    container.innerHTML = conversations.map(c => {
+      const isUnread = c.unread_count > 0;
+      const isActive = c.id === activeConversationId;
+      const timeStr = formatTimestamp(c.last_message_at);
+      const statusClass = c.status === 'replied' ? 'badge-success' : (c.status === 'active' ? 'badge-info' : 'badge-neutral');
+      
+      return `
+        <div class="conv-item ${isActive ? 'active' : ''} ${isUnread ? 'unread' : ''}" onclick="selectConversation('${c.id}')" id="conv-item-${c.id}">
+          <div class="conv-item-top">
+            <div style="display: flex; align-items: center; gap: 0.4rem; overflow: hidden;">
+              ${isUnread ? '<span style="width: 8px; height: 8px; border-radius: 50%; background: var(--accent-lime); display: inline-block; flex-shrink: 0;"></span>' : ''}
+              <span class="conv-biz-name" title="${escapeHtml(c.business_name)}">${escapeHtml(c.business_name)}</span>
+            </div>
+            <span class="conv-time">${timeStr}</span>
+          </div>
+          <div class="conv-subject" title="${escapeHtml(c.subject)}">${escapeHtml(c.subject)}</div>
+          <div class="conv-preview">${escapeHtml(c.snippet || 'No message content')}</div>
+          <div class="conv-meta">
+            <span class="badge ${statusClass}" style="font-size: 0.68rem; padding: 0.15rem 0.4rem;">${c.status}</span>
+            ${c.followup_status === 'scheduled' ? `<span class="badge" style="font-size: 0.68rem; background: var(--accent-amber-tint); color: #B45309; border: 1px solid var(--accent-amber);">Step ${c.followup_step} scheduled</span>` : ''}
+            ${c.followup_status === 'paused' ? `<span class="badge" style="font-size: 0.68rem; background: var(--bg-canvas); color: var(--text-muted); border: 1px solid var(--border-color);">Follow-ups paused</span>` : ''}
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  async function selectConversation(id) {
+    activeConversationId = id;
+
+    // Update active highlight in list
+    document.querySelectorAll('.conv-item').forEach(el => el.classList.remove('active'));
+    const itemEl = document.getElementById(`conv-item-${id}`);
+    if (itemEl) itemEl.classList.add('active');
+
+    try {
+      const res = await fetch(`/api/web/inbox/conversations/${id}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      currentConversationData = data;
+
+      renderActiveConversation(data);
+      renderLeadDossier(data);
+
+      // Show active view, hide empty state
+      document.getElementById('timeline-empty-state').style.display = 'none';
+      document.getElementById('timeline-active-view').style.display = 'flex';
+
+      // On mobile switch to timeline
+      if (window.innerWidth <= 768) {
+        toggleMobileView('timeline');
+      }
+    } catch (err) {
+      alert(`Failed to load conversation: ${err.message}`);
+    }
+  }
+
+  function renderActiveConversation(data) {
+    const conv = data.conversation;
+    const biz = data.business;
+    const camp = data.campaign;
+    const messages = data.messages || [];
+    const followups = data.followups || [];
+
+    // Header updates
+    document.getElementById('active-conv-biz-name').innerText = biz ? biz.name : conv.recipient_email;
+    document.getElementById('active-conv-email').innerText = conv.recipient_email;
+    document.getElementById('active-conv-campaign').innerText = camp ? `${camp.niche} (${camp.location})` : 'Direct Outreach';
+
+    const statusBadge = document.getElementById('active-conv-status-badge');
+    statusBadge.innerText = conv.status;
+    statusBadge.className = `badge ${conv.status === 'replied' ? 'badge-success' : (conv.status === 'active' ? 'badge-info' : 'badge-neutral')}`;
+
+    // Update Follow-up toggle button label
+    const btnFollowup = document.getElementById('btn-toggle-followup');
+    if (conv.followup_status === 'paused') {
+      btnFollowup.innerText = '▶ Resume Follow-ups';
+    } else {
+      btnFollowup.innerText = '⏸ Pause Follow-ups';
+    }
+
+    // Follow-up state banner
+    const bannerText = document.getElementById('followup-banner-text');
+    const stepsIndicator = document.getElementById('followup-steps-indicator');
+    
+    if (conv.followup_status === 'scheduled') {
+      bannerText.innerText = `Active — Multi-touch automated follow-up sequence in progress`;
+    } else if (conv.followup_status === 'cancelled') {
+      bannerText.innerText = `Sequence Stopped (Prospect Replied / Unsubscribed)`;
+    } else if (conv.followup_status === 'paused') {
+      bannerText.innerText = `Sequence Paused by Operator`;
+    } else if (conv.followup_status === 'completed') {
+      bannerText.innerText = `Sequence Fully Completed`;
+    } else {
+      bannerText.innerText = `Sequence Idle`;
+    }
+
+    // Render step badges
+    stepsIndicator.innerHTML = followups.map(f => {
+      let bg = '#E2E8F0';
+      let col = '#475569';
+      if (f.status === 'executed') { bg = 'var(--accent-mint)'; col = '#FFFFFF'; }
+      else if (f.status === 'scheduled') { bg = 'var(--accent-lime)'; col = 'var(--obsidian-primary)'; }
+      else if (f.status === 'cancelled') { bg = '#CBD5E1'; col = '#94A3B8'; }
+      return `<span style="font-size: 0.68rem; padding: 0.15rem 0.45rem; background: ${bg}; color: ${col}; border-radius: 2px; font-weight: 700;">Step ${f.sequence_step}: ${f.status}</span>`;
+    }).join('');
+
+    // Messages render
+    const msgContainer = document.getElementById('timeline-messages-container');
+    msgContainer.innerHTML = messages.map(m => {
+      let cardClass = 'outbound';
+      let authorTag = '📤 OUTREACH DISPATCH';
+      if (m.direction === 'inbound') {
+        cardClass = 'inbound';
+        authorTag = '📥 PROSPECT REPLY';
+      } else if (m.message_type === 'operator_reply') {
+        cardClass = 'operator';
+        authorTag = '💬 OPERATOR REPLY';
+      } else if (m.message_type === 'followup') {
+        authorTag = '🔄 AUTOMATED FOLLOW-UP';
+      }
+
+      return `
+        <div class="timeline-msg-card ${cardClass}">
+          <div class="msg-header">
+            <div class="msg-author">
+              <span class="micro-label" style="font-weight: 700;">${authorTag}</span>
+              <span style="font-size: 0.78rem; font-weight: 500; color: var(--text-muted);">${escapeHtml(m.sender)}</span>
+            </div>
+            <div class="msg-timestamp">${formatTimestamp(m.created_at)}</div>
+          </div>
+          <div style="font-size: 0.85rem; font-weight: 700; margin-bottom: 0.45rem;">${escapeHtml(m.subject)}</div>
+          <div class="msg-body">${escapeHtml(m.body)}</div>
+          <div style="display: flex; justify-content: flex-end; margin-top: 0.5rem; font-family: var(--font-mono); font-size: 0.68rem; color: var(--text-muted);">
+            Status: ${m.delivery_status}
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    // Prepopulate reply composer subject
+    const subjectPrefix = conv.subject.startsWith('Re:') ? conv.subject : `Re: ${conv.subject}`;
+    document.getElementById('reply-subject').value = subjectPrefix;
+
+    // Scroll to bottom of message timeline
+    msgContainer.scrollTop = msgContainer.scrollHeight;
+  }
+
+  function renderLeadDossier(data) {
+    const biz = data.business;
+    const lead = data.lead;
+
+    document.getElementById('dossier-biz-name').innerText = biz ? biz.name : '—';
+    
+    const websiteEl = document.getElementById('dossier-biz-website');
+    if (biz && biz.website) {
+      websiteEl.innerHTML = `<a href="${biz.website}" target="_blank" style="color: var(--accent-blue); text-decoration: underline;">${escapeHtml(biz.website)}</a>`;
+    } else {
+      websiteEl.innerText = 'None';
+    }
+
+    document.getElementById('dossier-biz-email').innerText = (biz && biz.email) ? biz.email : (data.conversation.recipient_email || '—');
+    document.getElementById('dossier-biz-locality').innerText = biz ? (biz.locality || '—') : '—';
+    document.getElementById('dossier-biz-phone').innerText = biz ? (biz.phone || '—') : '—';
+
+    // Lead Score
+    const scoreEl = document.getElementById('dossier-lead-score');
+    if (lead && lead.overall_score !== null) {
+      scoreEl.innerText = `${lead.overall_score}/100`;
+      scoreEl.className = `badge ${lead.overall_score >= 70 ? 'badge-success' : 'badge-warning'}`;
+    } else {
+      scoreEl.innerText = 'N/A';
+      scoreEl.className = 'badge badge-neutral';
+    }
+
+    document.getElementById('dossier-recommended-service').innerText = (lead && lead.recommended_service) ? lead.recommended_service : 'Direct Outreach';
+
+    // Identified Gaps
+    const gapsContainer = document.getElementById('dossier-gaps-container');
+    if (lead && lead.gaps && lead.gaps.length > 0) {
+      gapsContainer.innerHTML = lead.gaps.map(g => `
+        <div style="padding: 0.35rem 0.5rem; background: var(--bg-canvas); border-left: 3px solid var(--accent-amber); border-radius: 2px;">
+          <span style="font-weight: 700; text-transform: uppercase;">${escapeHtml(g.dimension)}:</span>
+          <span style="color: var(--text-muted);">${escapeHtml(g.summary || 'Low score')}</span>
+        </div>
+      `).join('');
+    } else {
+      gapsContainer.innerHTML = `<span style="color: var(--text-muted);">No critical website gaps detected.</span>`;
+    }
+
+    // Audit Notes
+    const notesEl = document.getElementById('dossier-audit-notes');
+    notesEl.innerText = (lead && lead.audit_notes) ? lead.audit_notes : 'No extra notes recorded.';
+
+    // Deep Link
+    const linkEl = document.getElementById('dossier-full-lead-link');
+    if (lead && lead.id) {
+      linkEl.href = `/leads/${lead.id}`;
+      linkEl.style.display = 'flex';
+    } else {
+      linkEl.style.display = 'none';
+    }
+  }
+
+  async function sendOperatorReply() {
+    if (!activeConversationId) return;
+
+    const body = document.getElementById('reply-body').value.trim();
+    const subject = document.getElementById('reply-subject').value.trim();
+    const pauseFollowups = document.getElementById('reply-pause-followups').checked;
+
+    if (!body) {
+      alert('Please enter a response body before sending.');
+      return;
+    }
+
+    const btn = document.getElementById('btn-send-reply');
+    btn.disabled = true;
+    btn.innerText = 'Sending...';
+
+    try {
+      const res = await fetch(`/api/web/inbox/conversations/${activeConversationId}/reply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          body: body,
+          subject: subject,
+          pause_followups: pauseFollowups
+        })
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || 'Failed to dispatch reply');
+      }
+
+      // Clear composer and reload conversation
+      document.getElementById('reply-body').value = '';
+      await selectConversation(activeConversationId);
+      await loadConversations();
+    } catch (err) {
+      alert(`Error sending operator reply: ${err.message}`);
+    } finally {
+      btn.disabled = false;
+      btn.innerText = 'Send Operator Reply ➔';
+    }
+  }
+
+  async function toggleFollowupState() {
+    if (!activeConversationId || !currentConversationData) return;
+    const currentStatus = currentConversationData.conversation.followup_status;
+    const action = currentStatus === 'paused' ? 'resume_followups' : 'pause_followups';
+
+    try {
+      const res = await fetch(`/api/web/inbox/conversations/${activeConversationId}/actions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: action })
+      });
+      if (!res.ok) throw new Error('Action failed');
+      await selectConversation(activeConversationId);
+      await loadConversations();
+    } catch (err) {
+      alert(`Failed to update follow-up state: ${err.message}`);
+    }
+  }
+
+  async function archiveCurrentConversation() {
+    if (!activeConversationId) return;
+    if (!confirm('Are you sure you want to archive this conversation thread?')) return;
+
+    try {
+      const res = await fetch(`/api/web/inbox/conversations/${activeConversationId}/actions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'archive' })
+      });
+      if (!res.ok) throw new Error('Failed to archive conversation');
+      await selectConversation(activeConversationId);
+      await loadConversations();
+    } catch (err) {
+      alert(`Error: ${err.message}`);
+    }
+  }
+
+  function filterByStatus(status, btn) {
+    document.querySelectorAll('.inbox-pill').forEach(el => el.classList.remove('active'));
+    btn.classList.add('active');
+
+    if (status === 'unread') {
+      currentFilter.status = 'all';
+      currentFilter.unread_only = true;
+    } else {
+      currentFilter.status = status;
+      currentFilter.unread_only = false;
+    }
+    loadConversations();
+  }
+
+  let searchTimeout = null;
+  function handleSearchInput(e) {
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(() => {
+      currentFilter.q = e.target.value.trim();
+      loadConversations();
+    }, 250);
+  }
+
+  function handleCampaignFilter(e) {
+    currentFilter.campaign_id = e.target.value;
+    loadConversations();
+  }
+
+  function clearComposer() {
+    document.getElementById('reply-body').value = '';
+  }
+
+  function toggleDossierDrawer() {
+    const panel = document.getElementById('inbox-dossier-panel');
+    panel.classList.toggle('drawer-open');
+    const closeBtn = document.getElementById('close-dossier-btn');
+    if (closeBtn) closeBtn.style.display = panel.classList.contains('drawer-open') ? 'inline-block' : 'none';
+  }
+
+  function toggleMobileView(view) {
+    const listPanel = document.getElementById('inbox-list-panel');
+    const timelinePanel = document.getElementById('inbox-timeline-panel');
+    const backBtn = document.getElementById('mobile-back-btn');
+
+    if (view === 'timeline') {
+      listPanel.classList.add('hidden-mobile');
+      timelinePanel.classList.add('visible-mobile');
+      if (backBtn) backBtn.style.display = 'inline-flex';
+    } else {
+      listPanel.classList.remove('hidden-mobile');
+      timelinePanel.classList.remove('visible-mobile');
+      if (backBtn) backBtn.style.display = 'none';
+    }
+  }
+
+  // Simulation Modal Functions
+  function openSimulateModal() {
+    // If a conversation is active, prefill the sender
+    if (currentConversationData && currentConversationData.conversation) {
+      document.getElementById('sim-sender-email').value = currentConversationData.conversation.recipient_email;
+      document.getElementById('sim-subject').value = `Re: ${currentConversationData.conversation.subject}`;
+    }
+    document.getElementById('simulate-reply-modal').classList.add('open');
+  }
+
+  function closeSimulateModal() {
+    document.getElementById('simulate-reply-modal').classList.remove('open');
+  }
+
+  async function submitSimulateReply() {
+    const sender = document.getElementById('sim-sender-email').value.trim();
+    const subject = document.getElementById('sim-subject').value.trim();
+    const body = document.getElementById('sim-body').value.trim();
+
+    if (!sender || !body) {
+      alert('Please fill in sender email and body');
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/inbound/simulate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sender_email: sender,
+          subject: subject,
+          body: body
+        })
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || 'Simulation failed');
+      }
+
+      const result = await res.json();
+      closeSimulateModal();
+      alert(`Simulated reply processed successfully!\nConversation ID: ${result.conversation_id}\nFollow-ups stopped: ${result.stopped_followups}`);
+
+      await loadConversations();
+      if (result.conversation_id) {
+        await selectConversation(result.conversation_id);
+      }
+    } catch (err) {
+      alert(`Simulation error: ${err.message}`);
+    }
+  }
+
+  function formatTimestamp(isoStr) {
+    if (!isoStr) return '';
+    try {
+      const d = new Date(isoStr);
+      const now = new Date();
+      const diffMs = now - d;
+      const diffMins = Math.floor(diffMs / 60000);
+      const diffHours = Math.floor(diffMins / 60);
+      const diffDays = Math.floor(diffHours / 24);
+
+      if (diffMins < 1) return 'Just now';
+      if (diffMins < 60) return `${diffMins}m ago`;
+      if (diffHours < 24) return `${diffHours}h ago`;
+      if (diffDays < 7) return `${diffDays}d ago`;
+      return d.toLocaleDateString();
+    } catch {
+      return isoStr;
+    }
+  }
+
+  function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;')
+              .replace(/"/g, '&quot;')
+              .replace(/'/g, '&#039;');
+  }
+</script>
+{% endblock %}

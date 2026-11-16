@@ -526,3 +526,35 @@ def audit_business(
         session.flush()
 
     return evidence_list
+
+
+def record_audit_log(
+    db: Session,
+    action: str,
+    details: Any = None,
+    entity_type: str = "system",
+    entity_id: uuid.UUID | None = None,
+    operator_id: str | None = None,
+    actor: str | None = None,
+    **kwargs: Any,
+) -> Any:
+    """
+    Convenience helper to record an immutable audit trail entry.
+    """
+    from app.models import AuditLog
+
+    eff_operator = operator_id or actor or "system"
+    payload_data = details if isinstance(details, dict) else {"details": str(details or "")}
+    if eff_operator:
+        payload_data.setdefault("actor", eff_operator)
+
+    log = AuditLog(
+        action=action,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        payload=payload_data,
+    )
+    db.add(log)
+    db.flush()
+    return log
+

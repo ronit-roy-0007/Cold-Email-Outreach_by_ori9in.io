@@ -416,11 +416,14 @@ def send_telegram_text(
     bot_token: str,
     chat_id: str | int,
     text: str,
+    buttons: list | None = None,
 ) -> bool:
     if not bot_token:
         return False
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-    payload = {"chat_id": str(chat_id), "text": text, "parse_mode": "Markdown"}
+    payload: dict[str, Any] = {"chat_id": str(chat_id), "text": text, "parse_mode": "Markdown"}
+    if buttons:
+        payload["reply_markup"] = {"inline_keyboard": buttons}
     try:
         with httpx.Client(timeout=15.0) as client:
             resp = client.post(url, json=payload)
@@ -747,6 +750,98 @@ def map_service_keywords(services_str: str) -> list[str]:
     return list(selected) if selected else list(ALL_SERVICES)
 
 
+def parse_and_validate_followup_input(text: str) -> tuple[bool, dict[str, Any], str]:
+    clean = text.strip().lower()
+    if clean in ("none", "no", "disable", "disabled", "0", "skip", "n", "false"):
+        return True, {
+            "enabled": False,
+            "count": 0,
+            "delays": [],
+            "schedule_type": "calendar",
+            "final_action": "close",
+        }, ""
+
+    if clean in ("standard", "std", "default"):
+        return True, {
+            "enabled": True,
+            "count": 3,
+            "delays": [3, 6, 10],
+            "schedule_type": "calendar",
+            "final_action": "close",
+        }, ""
+
+    if clean in ("biz_days", "business", "business_days", "bday", "bdays"):
+        return True, {
+            "enabled": True,
+            "count": 2,
+            "delays": [2, 5],
+            "schedule_type": "business",
+            "final_action": "close",
+        }, ""
+
+    if re.search(r"-\s*\d+", clean):
+        return False, {}, "⚠️ All delay intervals must be strictly positive (> 0 days)."
+
+    delays = [int(n) for n in re.findall(r"\b\d+\b", clean)]
+    if not delays:
+        return False, {}, "⚠️ Could not detect valid delay days. Reply with numbers (e.g. `3, 6, 10`) or `none`."
+
+    if len(delays) > 5:
+        return False, {}, "⚠️ Maximum 5 follow-up touchpoints allowed. Please provide between 1 and 5 delay numbers."
+
+    if any(d <= 0 for d in delays):
+        return False, {}, "⚠️ All delay intervals must be strictly positive (> 0 days)."
+
+    for i in range(len(delays) - 1):
+        if delays[i] >= delays[i + 1]:
+            return False, {}, f"⚠️ Delays must be strictly increasing. Found Day {delays[i]} followed by Day {delays[i + 1]}. Example: `3, 6, 10`."
+
+    sched_type = "business" if ("biz" in clean or "business" in clean) else "calendar"
+    return True, {
+        "enabled": True,
+        "count": len(delays),
+        "delays": delays,
+        "schedule_type": sched_type,
+        "final_action": "close",
+    }, ""
+
+
+def format_followup_summary(session_data: dict[str, Any], fu_config: dict[str, Any]) -> str:
+    niche = session_data.get("niche", "B2B Clients")
+    loc = session_data.get("location", "Global")
+    qty = session_data.get("quantity", 50)
+    score = session_data.get("benchmark", 80)
+    use_best = session_data.get("use_best_response_template", False)
+    tmpl_name = "Best-Response Proven Hook" if use_best else "Personalized AI Pitches"
+
+    enabled = fu_config.get("enabled", False)
+    if enabled:
+        delays = fu_config.get("delays", [])
+        sched_type = fu_config.get("schedule_type", "calendar").title()
+        sequence_lines = [f"  • *Initial Email:* Day 0 (on operator approval)"]
+        for idx, d in enumerate(delays):
+            sequence_lines.append(f"  • *Follow-up {idx + 1}:* Day +{d} ({sched_type} days)")
+        seq_text = "\n".join(sequence_lines)
+        fu_summary = (
+            f"🔄 *Automated Follow-Up Plan ({len(delays)} Touches):*\n"
+            f"{seq_text}\n"
+            f"  • *Stop Condition:* Auto-cancelled instantly if prospect replies, unsubscribes, or bounces\n"
+            f"  • *Final Action:* Mark conversation completed"
+        )
+    else:
+        fu_summary = "🔄 *Follow-Up Plan:* Single initial email only (no automated follow-ups)"
+
+    return (
+        f"📋 *Confirm Campaign & Follow-Up Architecture*\n\n"
+        f"• *Target Niche:* {niche}\n"
+        f"• *Location:* {loc}\n"
+        f"• *Target Quantity:* {qty} leads (Score ≥ {score})\n"
+        f"• *Template:* {tmpl_name}\n\n"
+        f"{fu_summary}\n\n"
+        f"Ready to launch the discovery & outreach pipeline?"
+    )
+
+
 def _execute_wizard_campaign(
     db: Session,
     settings: Settings,
@@ -762,6 +857,13 @@ def _execute_wizard_campaign(
     services_desc = session_data.get("services", "")
     qty = session_data.get("quantity", 50)
     bench_score = session_data.get("benchmark", 80)
+    followup_seq = session_data.get("followup_sequence") or {
+        "enabled": False,
+        "count": 0,
+        "delays": [],
+        "schedule_type": "calendar",
+        "final_action": "close",
+    }
 
     _USER_WIZARD_SESSIONS.pop(user_key, None)
     target_services = map_service_keywords(services_desc)
@@ -777,10 +879,17 @@ def _execute_wizard_campaign(
             "services_desc": services_desc,
             "use_best_response_template": use_best_response_template,
         },
+        "followup_sequence": followup_seq,
         "provider": settings.DISCOVERY_PROVIDER,
     }
 
     template_note = "🎯 *Template Mode:* Best-Response Outreach Message\n" if use_best_response_template else ""
+    fu_note = ""
+    if followup_seq.get("enabled"):
+        delays_str = ", ".join(f"+{d}d" for d in followup_seq.get("delays", []))
+        fu_note = f"• Follow-Up Sequence: *{followup_seq.get('count', 0)} touches ({delays_str})*\n"
+    else:
+        fu_note = "• Follow-Up Sequence: *Initial touch only*\n"
 
     # Send immediate acknowledgement to user
     if settings.TELEGRAM_BOT_TOKEN and user_id:
@@ -793,6 +902,7 @@ def _execute_wizard_campaign(
                 f"• Location: *{location}*\n"
                 f"• Benchmark Filter: *Score ≥ {bench_score}*\n"
                 f"{template_note}"
+                f"{fu_note}"
                 f"• Outreach Mode: *{'🟢 LIVE (Real Sending)' if not settings.OUTREACH_DRY_RUN else '🟡 DRY-RUN (Simulated)'}*\n\n"
                 f"🔍 Discovering businesses and auditing websites for {agency_name} now...\n"
                 f"Your scored leads and `.csv` file will be sent here shortly!"
@@ -1825,6 +1935,80 @@ def handle_telegram_update(
             session_data = _USER_WIZARD_SESSIONS.get(user_key)
             if not session_data or session_data.get("step") != "awaiting_template_choice":
                 return {"status": "error", "reply": "⚠️ Campaign setup session expired or invalid. Please start again with `/findleads`."}
+            session_data["use_best_response_template"] = use_best
+            session_data["step"] = "awaiting_followup_config"
+
+            reply = (
+                f"✅ Outreach style recorded: *{'Best-Response Proven Hook' if use_best else 'Personalized AI Proposals'}*\n\n"
+                f"🔄 *Step 7/7: Automated Follow-Up Sequence*\n"
+                f"Configure automated follow-up emails for unresponsive prospects.\n\n"
+                f"💡 *Pre-configured Sequences:*\n"
+                f"• *Standard (3 Follow-ups):* Day 3, Day 6, Day 10 (Calendar days)\n"
+                f"• *Business Days (2 Follow-ups):* Day 2, Day 5 (Business days only)\n"
+                f"• *Custom Sequence:* Reply with custom delays, e.g.: `3, 7, 14`\n"
+                f"• *No Follow-Ups:* Send initial email only\n\n"
+                f"_(Select a preset button below or reply with custom delays like \"3, 6, 10\" or \"none\")_"
+            )
+            buttons = [
+                [
+                    {"text": "⚡ Standard (Days 3, 6, 10)", "callback_data": "wizard_followup:standard"},
+                    {"text": "💼 Business Days (Days 2, 5)", "callback_data": "wizard_followup:biz_days"},
+                ],
+                [
+                    {"text": "🚫 No Follow-Ups (Initial Only)", "callback_data": "wizard_followup:none"},
+                ]
+            ]
+            return {"status": "in_progress", "reply": reply, "buttons": buttons}
+
+        elif cb_data.startswith("wizard_followup:"):
+            preset = cb_data.split(":", 1)[1].lower()
+            session_data = _USER_WIZARD_SESSIONS.get(user_key)
+            if not session_data or session_data.get("step") != "awaiting_followup_config":
+                return {"status": "error", "reply": "⚠️ Campaign session expired. Please start again with `/findleads`."}
+
+            valid, fu_config, err = parse_and_validate_followup_input(preset)
+            if not valid:
+                return {"status": "error", "reply": err}
+
+            session_data["followup_sequence"] = fu_config
+            session_data["step"] = "awaiting_followup_confirm"
+            summary_card = format_followup_summary(session_data, fu_config)
+            buttons = [
+                [
+                    {"text": "🚀 Launch Campaign Now", "callback_data": "wizard_confirm:yes"},
+                ],
+                [
+                    {"text": "✏️ Adjust Follow-Up Days", "callback_data": "wizard_confirm:change_followup"},
+                ]
+            ]
+            return {"status": "in_progress", "reply": summary_card, "buttons": buttons}
+
+        elif cb_data.startswith("wizard_confirm:"):
+            action = cb_data.split(":", 1)[1].lower()
+            session_data = _USER_WIZARD_SESSIONS.get(user_key)
+            if not session_data:
+                return {"status": "error", "reply": "⚠️ Campaign session expired. Please start again with `/findleads`."}
+
+            if action == "change_followup":
+                session_data["step"] = "awaiting_followup_config"
+                reply = (
+                    "🔄 *Adjust Follow-Up Sequence*\n"
+                    "Please reply with your desired delay days (e.g. `3, 6, 10` or `none`):\n\n"
+                    "_(Delays must be strictly positive and increasing)_"
+                )
+                buttons = [
+                    [
+                        {"text": "⚡ Standard (Days 3, 6, 10)", "callback_data": "wizard_followup:standard"},
+                        {"text": "💼 Business Days (Days 2, 5)", "callback_data": "wizard_followup:biz_days"},
+                    ],
+                    [
+                        {"text": "🚫 No Follow-Ups", "callback_data": "wizard_followup:none"},
+                    ]
+                ]
+                return {"status": "in_progress", "reply": reply, "buttons": buttons}
+
+            # Otherwise launch campaign
+            use_best = session_data.get("use_best_response_template", False)
             return _execute_wizard_campaign(
                 db=db,
                 settings=settings,
@@ -1839,7 +2023,7 @@ def handle_telegram_update(
         elif cb_data == "start_findleads":
             _USER_WIZARD_SESSIONS[user_key] = {"step": "awaiting_niche", "data": {}}
             reply = (
-                "🎯 *Universal Client Discovery (Step 1/6)*\n\n"
+                "🎯 *Universal Client Discovery (Step 1/7)*\n\n"
                 "Built for any agency or freelancer offering B2B services.\n\n"
                 "What is your *target client niche or industry*?\n"
                 "_(e.g., Real Estate, Dental Clinics, Law Firms, Roofers, E-commerce, Gyms)_\n\n"
@@ -2477,7 +2661,7 @@ def handle_telegram_update(
             session_data["step"] = "awaiting_location"
             reply = (
                 f"✅ Target Niche: *{session_data['niche']}*\n\n"
-                f"📍 *Step 2/6: Target Location*\n"
+                f"📍 *Step 2/7: Target Location*\n"
                 f"Which city, region, or metropolitan area do you want to prospect?\n"
                 f"_(e.g., Delhi, India | Dallas, Texas | London, UK | Mumbai | New York)_"
             )
@@ -2488,7 +2672,7 @@ def handle_telegram_update(
             session_data["step"] = "awaiting_services"
             reply = (
                 f"✅ Location: *{session_data['location']}*\n\n"
-                f"💼 *Step 3/6: Services You Offer*\n"
+                f"💼 *Step 3/7: Services You Offer*\n"
                 f"What services or solutions do you offer as a business/freelancer?\n"
                 f"_(e.g., automation system for business: ad managing, leads handling and follow ups, website providing)_"
             )
@@ -2499,7 +2683,7 @@ def handle_telegram_update(
             session_data["step"] = "awaiting_quantity"
             reply = (
                 f"✅ Services recorded!\n\n"
-                f"📊 *Step 4/6: Quantity of Leads*\n"
+                f"📊 *Step 4/7: Quantity of Leads*\n"
                 f"How many leads would you like to discover?\n"
                 f"_(e.g., 10, 25, 50, 100)_"
             )
@@ -2514,7 +2698,7 @@ def handle_telegram_update(
             session_data["step"] = "awaiting_benchmark"
             reply = (
                 f"✅ Target quantity: *{session_data['quantity']} leads*\n\n"
-                f"⭐ *Step 5/6: Benchmark Qualification Score (0–100)*\n"
+                f"⭐ *Step 5/7: Benchmark Qualification Score (0–100)*\n"
                 f"What is your minimum qualification score? Only leads scoring at or above this threshold will be qualified!\n\n"
                 f"💡 *Scoring Guide for Cold Outreach:*\n"
                 f"• *35–45:* 🎯 **Recommended Sweet Spot** (Established businesses with high revenue & clear automation gaps)\n"
@@ -2535,7 +2719,7 @@ def handle_telegram_update(
 
             reply = (
                 f"✅ Benchmark score: *Score ≥ {bench_score}*\n\n"
-                f"💬 *Step 6/6: High-Converting Cold Outreach Template*\n"
+                f"💬 *Step 6/7: High-Converting Cold Outreach Template*\n"
                 f"Would you like to send our proven, highest-response cold outreach message instead of generating personalized AI pitches?\n\n"
                 f"📝 *Message Preview:*\n"
                 f"\"Hey [Business Name], tried to reach you a few times but didn't hear back . . .\n\n\n"
@@ -2555,6 +2739,74 @@ def handle_telegram_update(
         elif step == "awaiting_template_choice":
             clean_ans = text.strip().lower()
             use_best = clean_ans in ("yes", "y", "true", "1", "best", "template")
+            session_data["use_best_response_template"] = use_best
+            session_data["step"] = "awaiting_followup_config"
+
+            reply = (
+                f"✅ Outreach style recorded: *{'Best-Response Proven Hook' if use_best else 'Personalized AI Proposals'}*\n\n"
+                f"🔄 *Step 7/7: Automated Follow-Up Sequence*\n"
+                f"Configure automated follow-up emails for unresponsive prospects.\n\n"
+                f"💡 *Pre-configured Sequences:*\n"
+                f"• *Standard (3 Follow-ups):* Day 3, Day 6, Day 10 (Calendar days)\n"
+                f"• *Business Days (2 Follow-ups):* Day 2, Day 5 (Business days only)\n"
+                f"• *Custom Sequence:* Reply with custom delays, e.g.: `3, 7, 14`\n"
+                f"• *No Follow-Ups:* Send initial email only\n\n"
+                f"_(Select a preset button below or reply with custom delays like \"3, 6, 10\" or \"none\")_"
+            )
+            buttons = [
+                [
+                    {"text": "⚡ Standard (Days 3, 6, 10)", "callback_data": "wizard_followup:standard"},
+                    {"text": "💼 Business Days (Days 2, 5)", "callback_data": "wizard_followup:biz_days"},
+                ],
+                [
+                    {"text": "🚫 No Follow-Ups (Initial Only)", "callback_data": "wizard_followup:none"},
+                ]
+            ]
+            return {"status": "in_progress", "reply": reply, "buttons": buttons}
+
+        elif step == "awaiting_followup_config":
+            valid, fu_config, err = parse_and_validate_followup_input(text)
+            if not valid:
+                return {
+                    "status": "in_progress",
+                    "reply": f"{err}\n\nPlease reply with valid delays (e.g. `3, 6, 10`) or `none`:",
+                }
+
+            session_data["followup_sequence"] = fu_config
+            session_data["step"] = "awaiting_followup_confirm"
+            summary_card = format_followup_summary(session_data, fu_config)
+            buttons = [
+                [
+                    {"text": "🚀 Launch Campaign Now", "callback_data": "wizard_confirm:yes"},
+                ],
+                [
+                    {"text": "✏️ Adjust Follow-Up Days", "callback_data": "wizard_confirm:change_followup"},
+                ]
+            ]
+            return {"status": "in_progress", "reply": summary_card, "buttons": buttons}
+
+        elif step == "awaiting_followup_confirm":
+            clean_ans = text.strip().lower()
+            if any(w in clean_ans for w in ("change", "edit", "adjust", "back", "modify")):
+                session_data["step"] = "awaiting_followup_config"
+                reply = (
+                    "🔄 *Adjust Follow-Up Sequence*\n"
+                    "Please reply with your desired delay days (e.g. `3, 6, 10` or `none`):\n\n"
+                    "_(Delays must be strictly positive and increasing)_"
+                )
+                buttons = [
+                    [
+                        {"text": "⚡ Standard (Days 3, 6, 10)", "callback_data": "wizard_followup:standard"},
+                        {"text": "💼 Business Days (Days 2, 5)", "callback_data": "wizard_followup:biz_days"},
+                    ],
+                    [
+                        {"text": "🚫 No Follow-Ups", "callback_data": "wizard_followup:none"},
+                    ]
+                ]
+                return {"status": "in_progress", "reply": reply, "buttons": buttons}
+
+            # Confirm and execute
+            use_best = session_data.get("use_best_response_template", False)
             return _execute_wizard_campaign(
                 db=db,
                 settings=settings,
@@ -2813,7 +3065,7 @@ def handle_telegram_update(
             # Start Interactive 6-Step Questionnaire
             _USER_WIZARD_SESSIONS[user_key] = {"step": "awaiting_niche", "data": {}}
             reply = (
-                "🎯 *Universal Client Discovery (Step 1/6)*\n\n"
+                "🎯 *Universal Client Discovery (Step 1/7)*\n\n"
                 "Built for any agency or freelancer offering B2B services.\n\n"
                 "What is your *target client niche or industry*?\n"
                 "_(e.g., Real Estate, Dental Clinics, Law Firms, Roofers, E-commerce, Gyms)_\n\n"

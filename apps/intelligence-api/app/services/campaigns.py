@@ -23,6 +23,7 @@ def create_campaign(session: Session, payload: dict[str, Any], settings: Setting
         requested_quantity=parsed.requested_quantity,
         target_services=parsed.target_services,
         filters=parsed.filters,
+        followup_sequence=payload.get("followup_sequence", {}),
         provider=provider,
         dry_run=payload.get("dry_run", settings.OUTREACH_DRY_RUN if settings else False),
         status="pending",

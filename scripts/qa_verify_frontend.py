@@ -146,6 +146,18 @@ def run_tests():
     results.append(("9. Settings & Integrations (/settings)", ok, f"Status: {st}"))
     print(f"  {'✓ PASS' if ok else '✗ FAIL'} Settings & Integrations (/settings) ({st})")
 
+    # Unified Inbox
+    st, body, _ = get("/inbox")
+    ok = st == 200 and "Unified Inbox" in body and "CONVERSATIONS & ENGAGEMENT" in body
+    results.append(("10. Unified Inbox (/inbox)", ok, f"Status: {st}"))
+    print(f"  {'✓ PASS' if ok else '✗ FAIL'} Unified Inbox (/inbox) ({st})")
+
+    # Unified Inbox API
+    st, body, _ = get("/api/web/inbox/conversations")
+    ok = st == 200 and "conversations" in body
+    results.append(("10b. Unified Inbox API (/api/web/inbox/conversations)", ok, f"Status: {st}"))
+    print(f"  {'✓ PASS' if ok else '✗ FAIL'} Unified Inbox API (/api/web/inbox/conversations) ({st})")
+
     # 3. Dynamic Entity Deep-Dives
     print("\n[PHASE 3: DEEP-DIVE INSPECTION & CSV EXPORT]")
 

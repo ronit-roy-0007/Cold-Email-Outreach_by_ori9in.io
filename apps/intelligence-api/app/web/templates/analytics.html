@@ -70,6 +70,28 @@
       <span>Verified MX & strict suppression active</span>
     </div>
   </div>
+
+  <div class="metric-card" style="border-left: 4px solid var(--accent-lime);">
+    <div class="metric-header">
+      <span class="micro-label" style="color: var(--text-main);">REPLY CONVERSION</span>
+      <span class="badge" style="background: var(--accent-lime); color: var(--obsidian-primary);">INBOX</span>
+    </div>
+    <div class="metric-value">{{ reply_rate }}%</div>
+    <div class="metric-footer">
+      <span>{{ replied_count }} replies from {{ total_conversations }} threads</span>
+    </div>
+  </div>
+
+  <div class="metric-card">
+    <div class="metric-header">
+      <span class="micro-label">FOLLOW-UP ENGINE</span>
+      <span class="mono" style="font-size: 0.8rem; color: var(--accent-blue);">PIPELINE</span>
+    </div>
+    <div class="metric-value">{{ followups_scheduled }}</div>
+    <div class="metric-footer">
+      <span>{{ followups_executed }} executed • {{ followups_cancelled }} auto-cancelled</span>
+    </div>
+  </div>
 </div>
 
 <!-- Two-Column Analytics Layout -->

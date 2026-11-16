@@ -98,6 +98,19 @@
       <span class="mono" style="font-size: 0.75rem; color: var(--text-muted);">{{ total_suppressed }} suppressed contacts</span>
     </div>
   </div>
+
+  <div class="metric-card" style="border-left: 4px solid var(--accent-lime);">
+    <div class="metric-header">
+      <span class="micro-label" style="color: var(--text-main);">UNIFIED INBOX</span>
+      <span class="badge" style="background: var(--accent-lime); color: var(--obsidian-primary);">{{ reply_rate }}% REPLY</span>
+    </div>
+    <div class="metric-value">{{ total_conversations }}</div>
+    <div class="metric-footer">
+      <a href="/inbox" style="color: var(--text-main); font-weight: 600; text-decoration: underline;">
+        {{ total_replies }} replies • {{ active_followups }} follow-ups active &rarr;
+      </a>
+    </div>
+  </div>
 </div>
 
 <!-- Main Split: Operations & Telemetry -->
