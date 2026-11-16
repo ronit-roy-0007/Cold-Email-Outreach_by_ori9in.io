@@ -219,6 +219,8 @@ Open your Telegram bot chat and use the following commands:
 | Command | Usage | Description |
 | :--- | :--- | :--- |
 | `/findleads` | `/findleads [Niche] in [City] [TargetCount] [MinScore]` | Launches a lead generation campaign (e.g. `/findleads Real Estate in Brooklyn 50 40`). |
+| `/provider` | `/provider` or `/set_provider <name>` | Check or switch scraping engine (Scrapling, Go Scraper, Mock) & email provider. |
+| `/live` / `/dryrun` | `/live` or `/dryrun` | Toggle between live email sending and safe simulation mode (check with `/mode`). |
 | `/status` | `/status` | Displays real-time progress of active campaigns and mailbox usage. |
 | `/export_csv` | `/export_csv` | Generates and sends a CSV of all qualified and contacted prospects. |
 | `/addemailaddress` | `/addemailaddress <email> <app_password>` | Dynamically tests and adds a new Gmail account into your live sending pool. |

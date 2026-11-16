@@ -98,6 +98,7 @@ def send_chat_action(token: str, chat_id: int | str, action: str = "typing") -> 
 def sync_bot_commands(token: str) -> None:
     commands = [
         {"command": "findleads", "description": "Start client discovery in any city"},
+        {"command": "provider", "description": "Check/switch scraper & email provider"},
         {"command": "settings", "description": "Connect/manage outreach Gmail accounts"},
         {"command": "live", "description": "Switch to real outbound email dispatch"},
         {"command": "dryrun", "description": "Switch to simulation/dry-run mode"},

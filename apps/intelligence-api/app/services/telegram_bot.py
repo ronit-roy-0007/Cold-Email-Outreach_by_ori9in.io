@@ -625,6 +625,7 @@ def format_commands_menu(prof_name: str, prof_agency: str) -> str:
         f"👤 *Operator:* *{prof_name}* ({prof_agency})\n\n"
         f"Here are all your commands — simple and ready to use:\n\n"
         f"🎯 `/findleads` — Start finding clients! Search any business type in any city\n"
+        f"🔌 `/provider` — View or switch scraping engine (Scrapling vs Go) & email provider\n"
         f"🔍 `/review` — Review leads one by one and read their custom AI email pitches\n"
         f"⚡ `/approve_campaign` — Approve all top-scoring leads in one quick click\n"
         f"🚀 `/dispatch` — Send cold emails to all your approved leads\n"
@@ -636,6 +637,69 @@ def format_commands_menu(prof_name: str, prof_agency: str) -> str:
         f"🧹 `/clean_memory` — Reset all data and restart the bot fresh from the beginning\n"
         f"❌ `/cancel` — Stop or reset your current question"
     )
+
+
+def persist_env_setting(key: str, value: str) -> None:
+    """
+    Persists key=value to .env files across restarts.
+    """
+    for p in (Path(".env"), Path("apps/intelligence-api/.env")):
+        if p.exists():
+            try:
+                c = p.read_text(encoding="utf-8")
+                pattern = rf"^{re.escape(key)}=.*$"
+                replacement = f"{key}={value}"
+                if re.search(pattern, c, flags=re.MULTILINE):
+                    c = re.sub(pattern, replacement, c, flags=re.MULTILINE)
+                else:
+                    c = c.rstrip() + f"\n{key}={value}\n"
+                p.write_text(c, encoding="utf-8")
+            except Exception:
+                pass
+
+
+def build_providers_menu(settings: Settings) -> tuple[str, list[list[dict[str, str]]]]:
+    disc = (settings.DISCOVERY_PROVIDER or "scrapling").lower()
+    email = (settings.EMAIL_PROVIDER or "smtp").lower()
+
+    disc_descriptions = {
+        "scrapling": "🕷️ *Scrapling* (Stealth Playwright Chromium + TLS impersonation — scrapes Google Maps & deep websites)",
+        "live": "🌐 *Go Microservice* (Connects to `google_maps_scraper.exe` daemon on port 8080)",
+        "mock": "🧪 *Mock Fixtures* (Offline synthetic data for instant tests with zero network traffic)",
+    }
+    email_descriptions = {
+        "smtp": "📧 *Gmail SMTP Pool* (Multi-mailbox rotation from `mailboxes.json` with pacing guards)",
+        "google_workspace": "⚡ *Google Workspace* (Google Workspace SMTP relay / app password)",
+        "resend": "📨 *Resend API* (Transactional email API via `RESEND_API_KEY`)",
+    }
+
+    current_disc = disc_descriptions.get(disc, f"`{disc}`")
+    current_email = email_descriptions.get(email, f"`{email}`")
+
+    text = (
+        "🔌 *Engine & Provider Settings*\n\n"
+        f"🔍 *Active Web & Maps Scraper:*\n{current_disc}\n\n"
+        f"📬 *Active Email Dispatcher:*\n{current_email}\n\n"
+        "Tap a button below to dynamically switch providers in real time:\n\n"
+        "_(Or use `/set_provider <scrapling|live|mock>` and `/set_email_provider <smtp|google_workspace|resend>`)_"
+    )
+
+    buttons = [
+        [
+            {"text": f"{'✅ ' if disc == 'scrapling' else ''}🕷️ Scrapling", "callback_data": "set_disc_provider:scrapling"},
+            {"text": f"{'✅ ' if disc == 'live' else ''}🌐 Go Scraper", "callback_data": "set_disc_provider:live"},
+            {"text": f"{'✅ ' if disc == 'mock' else ''}🧪 Mock", "callback_data": "set_disc_provider:mock"},
+        ],
+        [
+            {"text": f"{'✅ ' if email == 'smtp' else ''}📧 SMTP Gmail", "callback_data": "set_email_provider:smtp"},
+            {"text": f"{'✅ ' if email == 'google_workspace' else ''}⚡ Workspace", "callback_data": "set_email_provider:google_workspace"},
+            {"text": f"{'✅ ' if email == 'resend' else ''}📨 Resend", "callback_data": "set_email_provider:resend"},
+        ],
+        [
+            {"text": "⬅️ Back to Menu", "callback_data": "back_to_menu"},
+        ]
+    ]
+    return text, buttons
 
 
 def get_operator_profile(db: Session, user_id: str | int | None, settings: Settings) -> tuple[str, str]:
@@ -1752,6 +1816,43 @@ def handle_telegram_update(
             )
             return {"status": "wizard_step", "reply": reply}
 
+        elif cb_data == "open_providers":
+            msg, buttons = build_providers_menu(settings)
+            return {"status": "success", "reply": msg, "buttons": buttons}
+
+        elif cb_data.startswith("set_disc_provider:"):
+            prov = cb_data.split(":", 1)[1].strip().lower()
+            if prov in ("scrapling", "live", "mock"):
+                settings.DISCOVERY_PROVIDER = prov
+                persist_env_setting("DISCOVERY_PROVIDER", prov)
+            msg, buttons = build_providers_menu(settings)
+            return {"status": "success", "reply": msg, "buttons": buttons}
+
+        elif cb_data.startswith("set_email_provider:"):
+            eprov = cb_data.split(":", 1)[1].strip().lower()
+            if eprov in ("smtp", "google_workspace", "resend"):
+                settings.EMAIL_PROVIDER = eprov
+                persist_env_setting("EMAIL_PROVIDER", eprov)
+            msg, buttons = build_providers_menu(settings)
+            return {"status": "success", "reply": msg, "buttons": buttons}
+
+        elif cb_data == "back_to_menu":
+            prof = db.get(OperatorProfile, user_key)
+            prof_name = prof.sender_name if prof else sender_name
+            prof_agency = prof.agency_name if prof else agency_name
+            help_text = format_commands_menu(prof_name, prof_agency)
+            buttons = [
+                [
+                    {"text": "🎯 Find Clients (/findleads)", "callback_data": "start_findleads"},
+                    {"text": "🔌 Engine & Providers", "callback_data": "open_providers"},
+                ],
+                [
+                    {"text": "⚙️ Settings", "callback_data": "open_settings"},
+                    {"text": "👤 Profile", "callback_data": "open_profile"},
+                ],
+            ]
+            return {"status": "success", "reply": help_text, "buttons": buttons}
+
         # 1E. Standard single callback (approve:uuid, reject:uuid, skip:uuid)
         elif ":" in cb_data:
             action, lead_id_str = cb_data.split(":", 1)
@@ -1841,6 +1942,54 @@ def handle_telegram_update(
                 f"• `/dryrun` — Switch to simulation mode"
             ),
         }
+
+    if text.lower() in ("/provider", "/providers", "/engine", "/scraper"):
+        msg, buttons = build_providers_menu(settings)
+        return {"status": "success", "reply": msg, "buttons": buttons}
+
+    if text.lower().startswith(("/set_provider", "/setprovider")):
+        parts = text.split()
+        if len(parts) > 1:
+            target_prov = parts[1].strip().lower()
+            if target_prov in ("scrapling", "live", "mock"):
+                settings.DISCOVERY_PROVIDER = target_prov
+                persist_env_setting("DISCOVERY_PROVIDER", target_prov)
+                msg, buttons = build_providers_menu(settings)
+                return {
+                    "status": "success",
+                    "reply": f"✅ Scraper provider switched to *{target_prov.upper()}*!\n\n{msg}",
+                    "buttons": buttons,
+                }
+            else:
+                return {
+                    "status": "error",
+                    "reply": "⚠️ Invalid provider. Choose one of: `scrapling`, `live`, or `mock`.\nExample: `/set_provider scrapling`",
+                }
+        else:
+            msg, buttons = build_providers_menu(settings)
+            return {"status": "success", "reply": msg, "buttons": buttons}
+
+    if text.lower().startswith(("/set_email_provider", "/setemailprovider")):
+        parts = text.split()
+        if len(parts) > 1:
+            target_eprov = parts[1].strip().lower()
+            if target_eprov in ("smtp", "google_workspace", "resend"):
+                settings.EMAIL_PROVIDER = target_eprov
+                persist_env_setting("EMAIL_PROVIDER", target_eprov)
+                msg, buttons = build_providers_menu(settings)
+                return {
+                    "status": "success",
+                    "reply": f"✅ Email provider switched to *{target_eprov.upper()}*!\n\n{msg}",
+                    "buttons": buttons,
+                }
+            else:
+                return {
+                    "status": "error",
+                    "reply": "⚠️ Invalid email provider. Choose one of: `smtp`, `google_workspace`, or `resend`.\nExample: `/set_email_provider smtp`",
+                }
+        else:
+            msg, buttons = build_providers_menu(settings)
+            return {"status": "success", "reply": msg, "buttons": buttons}
 
     if text.lower().startswith(("/clean memory", "/clean_memory", "/cleandata", "/resetall")) or text.lower() == "/clean":
         # 1. Clear all in-memory session states
@@ -2404,9 +2553,10 @@ def handle_telegram_update(
         buttons = [
             [
                 {"text": "🎯 Find Clients (/findleads)", "callback_data": "start_findleads"},
-                {"text": "⚙️ Settings", "callback_data": "open_settings"},
+                {"text": "🔌 Engine & Providers", "callback_data": "open_providers"},
             ],
             [
+                {"text": "⚙️ Settings", "callback_data": "open_settings"},
                 {"text": "👤 Profile", "callback_data": "open_profile"},
             ],
         ]

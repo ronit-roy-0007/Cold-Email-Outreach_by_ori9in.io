@@ -161,46 +161,89 @@ def test_interactive_wizard_flow(client, db_session):
         "message": {"from": {"id": user_id}, "text": "/findleads"}
     })
     assert r1.status_code == 200
-    assert "Step 1/5" in r1.json()["reply"]
+    assert "Step 1/6" in r1.json()["reply"]
 
     # Step 2: Provide niche
     r2 = client.post("/api/orchestrator/webhooks/telegram", json={
         "message": {"from": {"id": user_id}, "text": "Real Estate"}
     })
     assert r2.status_code == 200
-    assert "Step 2/5" in r2.json()["reply"]
+    assert "Step 2/6" in r2.json()["reply"]
 
     # Step 3: Provide location
     r3 = client.post("/api/orchestrator/webhooks/telegram", json={
         "message": {"from": {"id": user_id}, "text": "Dallas, Texas"}
     })
     assert r3.status_code == 200
-    assert "Step 3/5" in r3.json()["reply"]
+    assert "Step 3/6" in r3.json()["reply"]
 
     # Step 4: Provide services
     r4 = client.post("/api/orchestrator/webhooks/telegram", json={
         "message": {"from": {"id": user_id}, "text": "automation system for business (ad managing, leads handling and follow ups and website providing)"}
     })
     assert r4.status_code == 200
-    assert "Step 4/5" in r4.json()["reply"]
+    assert "Step 4/6" in r4.json()["reply"]
 
     # Step 5: Provide quantity
     r5 = client.post("/api/orchestrator/webhooks/telegram", json={
         "message": {"from": {"id": user_id}, "text": "10"}
     })
     assert r5.status_code == 200
-    assert "Step 5/5" in r5.json()["reply"]
+    assert "Step 5/6" in r5.json()["reply"]
 
     # Step 6: Provide benchmark score
     r6 = client.post("/api/orchestrator/webhooks/telegram", json={
         "message": {"from": {"id": user_id}, "text": "50"}
     })
     assert r6.status_code == 200
-    res_data = r6.json()
+    assert "Step 6/6" in r6.json()["reply"]
+
+    # Step 7: Choose template
+    r7 = client.post("/api/orchestrator/webhooks/telegram", json={
+        "message": {"from": {"id": user_id}, "text": "yes"}
+    })
+    assert r7.status_code == 200
+    res_data = r7.json()
     assert "Campaign Completed & Scored" in res_data["reply"]
     assert "csv_content" in res_data
     assert "benchmark_met" in res_data["csv_content"]
     assert "buttons" in res_data
+
+
+def test_provider_commands_and_callbacks(client, db_session):
+    user_id = 123456789
+    db_session.add(OperatorProfile(user_id=str(user_id), sender_name="Roy", agency_name="ori9in.io"))
+    db_session.commit()
+
+    # 1. Test /provider command
+    r = client.post("/api/orchestrator/webhooks/telegram", json={
+        "message": {"from": {"id": user_id}, "text": "/provider"}
+    })
+    assert r.status_code == 200
+    data = r.json()
+    assert "Engine & Provider Settings" in data["reply"]
+    assert "buttons" in data
+
+    # 2. Test /set_provider command
+    r_set = client.post("/api/orchestrator/webhooks/telegram", json={
+        "message": {"from": {"id": user_id}, "text": "/set_provider scrapling"}
+    })
+    assert r_set.status_code == 200
+    assert "SCRAPLING" in r_set.json()["reply"]
+
+    # 3. Test callback set_disc_provider:mock
+    r_cb = client.post("/api/orchestrator/webhooks/telegram", json={
+        "callback_query": {"from": {"id": user_id}, "data": "set_disc_provider:mock"}
+    })
+    assert r_cb.status_code == 200
+    assert "Mock Fixtures" in r_cb.json()["reply"]
+
+    # 4. Test callback set_email_provider:smtp
+    r_ecb = client.post("/api/orchestrator/webhooks/telegram", json={
+        "callback_query": {"from": {"id": user_id}, "data": "set_email_provider:smtp"}
+    })
+    assert r_ecb.status_code == 200
+    assert "Gmail SMTP Pool" in r_ecb.json()["reply"]
 
 
 def test_bulk_approve_campaign(client, db_session, auth_settings):
