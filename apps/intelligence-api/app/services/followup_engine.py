@@ -250,10 +250,12 @@ def process_due_followups(
 ) -> dict[str, Any]:
     """
     Checks for all due follow-up executions and dispatches them with strict stop conditions.
-    Guarantees idempotency and safe dry-run execution.
+    Guarantees idempotency, multi-worker concurrency safety (skip_locked), retry backoff,
+    and safe dry-run execution.
     """
     current_time = now or utc_now()
-    due_items = (
+    
+    query = (
         db.query(FollowUpExecution)
         .filter(
             FollowUpExecution.status == "scheduled",
@@ -261,8 +263,13 @@ def process_due_followups(
         )
         .order_by(FollowUpExecution.scheduled_at)
         .limit(50)
-        .all()
     )
+
+    # Concurrency control: prevent duplicate executions across multiple workers in PostgreSQL
+    if db.bind and db.bind.dialect.name == "postgresql":
+        query = query.with_for_update(skip_locked=True)
+
+    due_items = query.all()
 
     executed_count = 0
     cancelled_count = 0
@@ -273,9 +280,10 @@ def process_due_followups(
         if not conv:
             item.status = "failed"
             item.stop_reason = "conversation_not_found"
+            failed_count += 1
             continue
 
-        # 1. Mandatory Stop Check: Conversation Replied or Closed
+        # 1. Mandatory Stop Check: Conversation Replied, Closed, or Archived
         if conv.status in ("replied", "closed", "archived"):
             item.status = "cancelled"
             item.stop_reason = f"conversation_status_{conv.status}"
@@ -295,64 +303,94 @@ def process_due_followups(
             cancelled_count += 1
             continue
 
-        # 3. Check Campaign Status
+        # 3. Check Conversation Pause State
+        if conv.followup_status == "paused":
+            item.status = "paused"
+            item.stop_reason = "conversation_paused_by_operator"
+            continue
+
+        # 4. Check Campaign Status
         camp = db.get(Campaign, item.campaign_id) if item.campaign_id else None
         if camp and camp.status in ("paused", "cancelled", "archived"):
             item.status = "paused"
             item.stop_reason = f"campaign_{camp.status}"
             continue
 
-        # Safe Dispatch / Simulation
-        lead = db.get(Lead, item.lead_id) if item.lead_id else None
-        biz = db.get(Business, lead.business_id) if (lead and lead.business_id) else None
-        biz_name = biz.name if biz else "Business"
-        svc = lead.recommended_service if lead else None
-        sender = settings.AGENCY_SENDER_NAME or "Ronit"
+        # 5. Dispatch / Simulation Execution with Retry Safety
+        try:
+            lead = db.get(Lead, item.lead_id) if item.lead_id else None
+            biz = db.get(Business, lead.business_id) if (lead and lead.business_id) else None
+            biz_name = biz.name if biz else "Business"
+            svc = lead.recommended_service if lead else None
+            sender = settings.AGENCY_SENDER_NAME or "Ronit"
 
-        subject, body = generate_followup_message_body(
-            item.sequence_step,
-            biz_name,
-            svc,
-            sender,
-            conv.subject,
-        )
-
-        provider_msg_id = f"intentlead-fu-{uuid.uuid4().hex[:12]}@intentlead.agency"
-
-        # Record conversation message
-        msg = ConversationMessage(
-            conversation_id=conv.id,
-            direction="outbound",
-            message_type="followup",
-            sender=conv.sender_email,
-            recipient=conv.recipient_email,
-            subject=subject,
-            body=body,
-            provider_message_id=provider_msg_id,
-            delivery_status="simulated" if settings.OUTREACH_DRY_RUN else "sent",
-        )
-        db.add(msg)
-
-        # Mark execution completed
-        item.status = "executed"
-        item.executed_at = utc_now()
-        conv.last_message_at = utc_now()
-        conv.followup_step = item.sequence_step
-
-        # Check if there are further scheduled steps
-        remaining = (
-            db.query(FollowUpExecution)
-            .filter(
-                FollowUpExecution.conversation_id == conv.id,
-                FollowUpExecution.status == "scheduled",
-                FollowUpExecution.id != item.id,
+            subject, body = generate_followup_message_body(
+                item.sequence_step,
+                biz_name,
+                svc,
+                sender,
+                conv.subject,
             )
-            .count()
-        )
-        if remaining == 0:
-            conv.followup_status = "completed"
 
-        executed_count += 1
+            provider_msg_id = f"intentlead-fu-{uuid.uuid4().hex[:12]}@intentlead.agency"
+
+            # Record conversation message
+            msg = ConversationMessage(
+                conversation_id=conv.id,
+                direction="outbound",
+                message_type="followup",
+                sender=conv.sender_email,
+                recipient=conv.recipient_email,
+                subject=subject,
+                body=body,
+                provider_message_id=provider_msg_id,
+                delivery_status="simulated" if settings.OUTREACH_DRY_RUN else "sent",
+            )
+            db.add(msg)
+
+            # Mark execution completed
+            item.status = "executed"
+            item.executed_at = utc_now()
+            conv.last_message_at = utc_now()
+            conv.followup_step = item.sequence_step
+
+            # Check if there are further scheduled steps
+            remaining = (
+                db.query(FollowUpExecution)
+                .filter(
+                    FollowUpExecution.conversation_id == conv.id,
+                    FollowUpExecution.status == "scheduled",
+                    FollowUpExecution.id != item.id,
+                )
+                .count()
+            )
+            if remaining == 0:
+                conv.followup_status = "completed"
+
+            # Record audit trail
+            record_audit_log(
+                db,
+                action="followup_step_executed",
+                operator_id="scheduler_engine",
+                entity_type="conversation",
+                entity_id=conv.id,
+                details={
+                    "step": item.sequence_step,
+                    "recipient": conv.recipient_email,
+                    "dry_run": settings.OUTREACH_DRY_RUN,
+                },
+            )
+
+            executed_count += 1
+        except Exception as exc:
+            item.attempt_count += 1
+            if item.attempt_count >= 3:
+                item.status = "failed"
+                item.stop_reason = f"max_retries_exceeded: {exc}"
+            else:
+                # Back off by 15 minutes * attempt_count
+                item.scheduled_at = current_time + timedelta(minutes=15 * item.attempt_count)
+            failed_count += 1
 
     db.commit()
     return {

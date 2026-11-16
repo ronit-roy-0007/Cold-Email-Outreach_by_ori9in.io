@@ -50,6 +50,20 @@ def dispatch_endpoint(
     )
 
 
+@router.post("/followups/process", dependencies=[Depends(check_rate_limit)])
+def process_followups_endpoint(
+    db: Session = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+    _: str = Depends(verify_api_key),
+) -> dict[str, Any]:
+    """
+    Triggers batch execution of all due automated follow-ups.
+    Protected by API key and rate-limiting.
+    """
+    from app.services.followup_engine import process_due_followups
+    return process_due_followups(db, settings)
+
+
 @router.get("/stats", dependencies=[Depends(check_rate_limit)])
 def outreach_stats_endpoint(
     db: Session = Depends(get_session),
