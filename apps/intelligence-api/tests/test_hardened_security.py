@@ -318,3 +318,43 @@ def test_secure_reverse_proxy_ip_handling():
     # Case 3: Chained trusted proxies: Client -> Proxy1 (untrusted) -> Proxy2 (trusted 10.0.0.1) -> Gateway (trusted 127.0.0.1)
     req_chained = DummyRequest("127.0.0.1", {"x-forwarded-for": "198.51.100.99, 10.0.0.1"})
     assert extract_client_ip(req_chained, trusted) == "198.51.100.99"
+
+
+def test_multi_worker_consistency():
+    """
+    Verifies that multiple worker processes sharing the same Redis backend
+    enforce atomic rate limits consistently across workers.
+    """
+    shared_redis_store = {}
+
+    def mock_pipeline():
+        pipe = MagicMock()
+        def execute():
+            current_count = len(shared_redis_store.get("rate:test_ip", []))
+            shared_redis_store.setdefault("rate:test_ip", []).append(time.time())
+            return [0, current_count, 1, True]
+        pipe.execute.side_effect = execute
+        return pipe
+
+    mock_redis = MagicMock()
+    mock_redis.pipeline.side_effect = mock_pipeline
+
+    worker_a = DistributedRateLimiter()
+    worker_a._redis = mock_redis
+
+    worker_b = DistributedRateLimiter()
+    worker_b._redis = mock_redis
+
+    ip = "198.51.100.9"
+    # Worker A processes request 1 (allowed, count=1 <= 2)
+    assert worker_a.is_allowed(ip, max_requests=2, window_seconds=60) is True
+
+    # Worker B processes request 2 (allowed, count=2 <= 2)
+    assert worker_b.is_allowed(ip, max_requests=2, window_seconds=60) is True
+
+    # Worker A attempts request 3 (rejected, count=3 > 2)
+    assert worker_a.is_allowed(ip, max_requests=2, window_seconds=60) is False
+
+    # Worker B attempts request 4 (rejected, count=4 > 2)
+    assert worker_b.is_allowed(ip, max_requests=2, window_seconds=60) is False
+
