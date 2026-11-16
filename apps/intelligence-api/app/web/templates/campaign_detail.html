@@ -1,0 +1,224 @@
+{% extends "base.html" %}
+
+{% block title %}{{ campaign.niche }} ({{ campaign.location }}) — Campaign Details{% endblock %}
+
+{% block breadcrumbs %}
+  <a href="/campaigns" style="color: var(--text-muted); text-decoration: none;">Campaigns</a> 
+  <span class="sub">/ {{ campaign.niche }}</span>
+{% endblock %}
+
+{% block content %}
+<!-- Campaign Header -->
+<div style="margin-bottom: 2rem;">
+  <div style="margin-bottom: 0.35rem;">
+    <a href="/campaigns" style="font-size: 0.82rem; font-weight: 600; text-decoration: none; color: var(--text-muted);">
+      &larr; Back to Campaigns
+    </a>
+  </div>
+  <div style="display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
+    <div>
+      <h1 style="font-size: 2.2rem; line-height: 1.15;">
+        {{ campaign.niche }} <span class="highlight-lime">{{ campaign.location }}</span>
+      </h1>
+      <div style="display: flex; align-items: center; gap: 0.75rem; margin-top: 0.5rem; flex-wrap: wrap;">
+        <span class="badge badge-{{ 'approved' if campaign.status == 'completed' else 'neutral' }}">
+          {{ campaign.status|upper }}
+        </span>
+        <span class="mono" style="font-size: 0.8rem; color: var(--text-muted);">Provider: {{ campaign.provider }}</span>
+        <span style="color: var(--border-subtle);">&bull;</span>
+        <span class="mono" style="font-size: 0.75rem; color: var(--text-muted);">ID: {{ campaign.id }}</span>
+      </div>
+    </div>
+
+    <div style="display: flex; gap: 0.75rem;">
+      <a href="/campaigns/{{ campaign.id }}/export.csv" class="btn btn-secondary">
+        ⬇ Export Clean CSV
+      </a>
+      <a href="/approvals?campaign_id={{ campaign.id }}" class="btn btn-primary">
+        Review Approvals Queue ({{ draft_count }})
+      </a>
+    </div>
+  </div>
+</div>
+
+<!-- Campaign KPI Summary -->
+<div class="metrics-grid">
+  <div class="metric-card">
+    <div class="metric-header">
+      <span class="micro-label">TOTAL LEADS SCORED</span>
+      <span class="mono" style="font-size: 0.8rem; color: var(--text-muted);">RAW</span>
+    </div>
+    <div class="metric-value">{{ total_leads }}</div>
+    <div class="metric-footer">
+      <span>Evaluated against 5 gap dimensions</span>
+    </div>
+  </div>
+
+  <div class="metric-card" style="border-left: 4px solid var(--accent-amber);">
+    <div class="metric-header">
+      <span class="micro-label" style="color: #92400E;">PENDING OPERATOR SIGN-OFF</span>
+      <span class="badge badge-draft">GATE</span>
+    </div>
+    <div class="metric-value" style="color: #92400E;">{{ draft_count }}</div>
+    <div class="metric-footer">
+      <a href="/approvals?campaign_id={{ campaign.id }}" style="color: #92400E; font-weight: 600; text-decoration: underline;">Review in Approval Center &rarr;</a>
+    </div>
+  </div>
+
+  <div class="metric-card" style="border-left: 4px solid var(--accent-mint);">
+    <div class="metric-header">
+      <span class="micro-label" style="color: var(--accent-mint);">APPROVED LEADS</span>
+      <span class="badge badge-approved">READY</span>
+    </div>
+    <div class="metric-value" style="color: #065F46;">{{ approved_count }}</div>
+    <div class="metric-footer">
+      <span>Unlocked for dispatch cycle</span>
+    </div>
+  </div>
+
+  <div class="metric-card">
+    <div class="metric-header">
+      <span class="micro-label">DISPATCHED / SIMULATED</span>
+      <span class="mono" style="font-size: 0.8rem; color: #D97706;">DRY_RUN</span>
+    </div>
+    <div class="metric-value">{{ sent_count }}</div>
+    <div class="metric-footer">
+      <span>Target limit: {{ campaign.target_sent_emails or 50 }}</span>
+    </div>
+  </div>
+</div>
+
+<!-- Scrape Job Telemetry (if available) -->
+{% if scrape_job %}
+<div class="card" style="padding: 1rem 1.25rem; margin-bottom: 1.5rem; background: #F8FAFC;">
+  <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
+    <div>
+      <span class="micro-label" style="color: var(--accent-blue);">RECONNAISSANCE ENGINE JOB TELEMETRY</span>
+      <div class="mono" style="font-size: 0.85rem; font-weight: 600; margin-top: 0.2rem;">
+        Job ID: {{ scrape_job.id }} &bull; Status: <span class="badge badge-neutral">{{ scrape_job.status }}</span>
+      </div>
+    </div>
+    <div class="mono" style="font-size: 0.8rem; color: var(--text-muted);">
+      Discovered: <strong>{{ scrape_job.items_scraped or total_leads }}</strong> targets &bull; Started: {{ scrape_job.created_at.strftime('%Y-%m-%d %H:%M') if scrape_job.created_at else '—' }}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<!-- Campaign Leads Table -->
+<div class="card" style="padding: 0; overflow: hidden;">
+  <div class="card-header" style="margin: 0; padding: 1.25rem;">
+    <div class="card-title">
+      <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+      <span>Scored Leads in Campaign ({{ leads|length }})</span>
+    </div>
+    <div class="mono" style="font-size: 0.8rem; color: var(--text-muted);">
+      Ranked by overall score
+    </div>
+  </div>
+
+  <div class="table-responsive">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Business Name</th>
+          <th>Lead Score</th>
+          <th>Priority</th>
+          <th>Confidence</th>
+          <th>Recommended Service</th>
+          <th>Email Address</th>
+          <th>Status</th>
+          <th style="text-align: right;">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for lead, biz in leads %}
+        <tr id="lead-row-{{ lead.id }}">
+          <td>
+            <div style="font-weight: 700; font-size: 0.95rem;">
+              <a href="/leads/{{ lead.id }}" style="color: var(--text-main); text-decoration: none;">
+                {{ biz.name }}
+              </a>
+            </div>
+            <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 0.2rem;">
+              {% if biz.website %}
+                <a href="{{ biz.website }}" target="_blank" rel="noopener noreferrer" style="color: var(--accent-blue); text-decoration: underline;">
+                  {{ biz.website|replace('https://', '')|replace('http://', '')|truncate(30) }}
+                </a>
+              {% else %}
+                <span class="mono" style="color: var(--text-subtle);">No website</span>
+              {% endif %}
+            </div>
+          </td>
+
+          <td>
+            <span class="mono" style="font-weight: 700; font-size: 1.15rem;
+              {% if lead.overall_score >= 80 %}color: #065F46;
+              {% elif lead.overall_score >= 60 %}color: #1E40AF;
+              {% else %}color: #92400E;{% endif %}">
+              {{ lead.overall_score }}
+            </span>
+          </td>
+
+          <td>
+            <span class="badge badge-priority-{{ lead.priority.lower() if lead.priority else 'b' }}">
+              Priority {{ lead.priority or 'B' }}
+            </span>
+          </td>
+
+          <td>
+            <span class="mono" style="font-size: 0.75rem; background: #F1F5F9; padding: 0.15rem 0.4rem; border-radius: 3px;">
+              {{ lead.confidence }}
+            </span>
+          </td>
+
+          <td>
+            {% if lead.recommended_service %}
+              <span class="badge" style="background-color: #EFF6FF; color: #1E40AF; border: 1px solid #BFDBFE;">
+                {{ lead.recommended_service|replace('_', ' ')|title }}
+              </span>
+            {% else %}
+              <span class="mono" style="font-size: 0.75rem; color: var(--text-subtle);">None</span>
+            {% endif %}
+          </td>
+
+          <td>
+            {% if biz.email %}
+              <div class="mono" style="font-size: 0.8rem; font-weight: 600;">{{ biz.email }}</div>
+            {% else %}
+              <span class="mono" style="font-size: 0.75rem; color: var(--text-subtle);">—</span>
+            {% endif %}
+          </td>
+
+          <td class="status-cell">
+            {% if lead.outreach_status == 'approved' %}
+              <span class="badge badge-approved">Approved</span>
+            {% elif lead.outreach_status == 'draft' or lead.outreach_status == 'pending' %}
+              <span class="badge badge-draft">Draft</span>
+            {% elif lead.outreach_status == 'sent' %}
+              <span class="badge badge-approved">Sent</span>
+            {% elif lead.outreach_status == 'simulated' %}
+              <span class="badge badge-neutral">Simulated</span>
+            {% else %}
+              <span class="badge badge-neutral">{{ lead.outreach_status }}</span>
+            {% endif %}
+          </td>
+
+          <td class="actions-cell" style="text-align: right;">
+            <a href="/leads/{{ lead.id }}" class="btn btn-sm btn-secondary" style="padding: 0.35rem 0.75rem;">
+              Inspect &rarr;
+            </a>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="8" style="text-align: center; padding: 3rem; color: var(--text-muted);">
+            No leads scored for this campaign yet.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

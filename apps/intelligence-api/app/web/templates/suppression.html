@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+
+{% block title %}Suppression List — IntentLead AI{% endblock %}
+
+{% block breadcrumbs %}
+  <span>IntentLead</span> <span class="sub">/ Suppression & Opt-Out Registry</span>
+{% endblock %}
+
+{% block content %}
+<div style="margin-bottom: 2rem;">
+  <div class="micro-label" style="margin-bottom: 0.35rem; color: #EF4444;">COMPLIANCE & REPUTATION SHIELD</div>
+  <div style="display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
+    <div>
+      <h1 style="font-size: 2.2rem; line-height: 1.15;">
+        Suppression & <span class="highlight-lime">Opt-Out Registry</span>
+      </h1>
+      <p style="color: var(--text-muted); margin-top: 0.5rem; font-size: 0.95rem;">
+        Guaranteed pre-dispatch exclusion: Any email address listed here is strictly blocked from receiving cold communications.
+      </p>
+    </div>
+    <button onclick="openModal('add-suppression-modal')" class="btn btn-primary">
+      <span>+</span> Suppress Email Address
+    </button>
+  </div>
+</div>
+
+<!-- Search & Statistics Toolbar -->
+<div class="card" style="padding: 1rem 1.25rem; margin-bottom: 1.5rem;">
+  <form method="GET" action="/suppression" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
+    <div style="display: flex; gap: 0.75rem; flex: 1; max-width: 450px;">
+      <input 
+        type="text" 
+        name="q" 
+        value="{{ q }}" 
+        class="form-control" 
+        placeholder="Filter by email or suppression reason..."
+      >
+      <button type="submit" class="btn btn-primary btn-sm">Search</button>
+      {% if q %}
+        <a href="/suppression" class="btn btn-secondary btn-sm">Clear</a>
+      {% endif %}
+    </div>
+
+    <div class="mono" style="font-size: 0.85rem; color: var(--text-muted);">
+      Total Suppressed Contacts: <strong>{{ total_suppressed }}</strong>
+    </div>
+  </form>
+</div>
+
+<!-- Suppression Data Table -->
+<div class="card" style="padding: 0; overflow: hidden;">
+  <div class="table-responsive">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Suppressed Email Address</th>
+          <th>Suppression Reason</th>
+          <th>Origin / Source</th>
+          <th>Recorded Timestamp</th>
+          <th>Enforcement</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in entries %}
+        <tr>
+          <td>
+            <div class="mono" style="font-weight: 700; font-size: 0.92rem; color: var(--text-main);">
+              {{ s.email }}
+            </div>
+            <div class="mono" style="font-size: 0.72rem; color: var(--text-muted);">
+              ID: {{ s.id }}
+            </div>
+          </td>
+
+          <td>
+            <span class="badge badge-neutral mono" style="font-size: 0.75rem; text-transform: uppercase;">
+              {{ s.reason }}
+            </span>
+          </td>
+
+          <td>
+            <span class="mono" style="font-size: 0.8rem; color: var(--text-muted);">
+              {{ s.source or 'operator_manual' }}
+            </span>
+          </td>
+
+          <td>
+            <span class="mono" style="font-size: 0.8rem; color: var(--text-muted);">
+              {{ s.created_at.strftime('%Y-%m-%d %H:%M:%S') if s.created_at else '—' }}
+            </span>
+          </td>
+
+          <td>
+            <span class="badge badge-approved" style="font-size: 0.75rem;">
+              Strict Blocked
+            </span>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="5" style="text-align: center; padding: 3rem; color: var(--text-muted);">
+            No suppressed email addresses recorded.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Modal: Add Manual Suppression -->
+<div id="add-suppression-modal" class="modal-backdrop">
+  <div class="card" style="max-width: 480px; width: 90%; margin: 5rem auto; background: var(--bg-surface); padding: 2rem; position: relative;">
+    <div class="card-header" style="margin-bottom: 1.25rem;">
+      <div class="card-title">
+        <span>Add Email to Suppression Registry</span>
+      </div>
+      <button onclick="closeModal('add-suppression-modal')" style="background: none; border: none; font-size: 1.25rem; cursor: pointer; color: var(--text-muted);">
+        ✕
+      </button>
+    </div>
+
+    <form method="POST" action="/suppression/add">
+      <div style="margin-bottom: 1rem;">
+        <label class="form-label">Email Address to Exclude</label>
+        <input type="email" name="email" required class="form-control" placeholder="client@company.com">
+      </div>
+
+      <div style="margin-bottom: 1.5rem;">
+        <label class="form-label">Reason for Suppression</label>
+        <select name="reason" class="form-control">
+          <option value="manual_optout" selected>Manual Operator Opt-Out</option>
+          <option value="unsubscribe_request">Unsubscribe Request</option>
+          <option value="hard_bounce">Hard Bounce</option>
+          <option value="spam_complaint">Spam Complaint</option>
+          <option value="competitor">Competitor / Internal Exclusion</option>
+        </select>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 0.75rem;">
+        <button type="button" onclick="closeModal('add-suppression-modal')" class="btn btn-secondary btn-sm">Cancel</button>
+        <button type="submit" class="btn btn-primary btn-sm">Enforce Suppression</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

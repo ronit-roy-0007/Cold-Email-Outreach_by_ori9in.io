@@ -1,49 +1,135 @@
 {% extends "base.html" %}
 
-{% block title %}New Campaign — IntentLead AI{% endblock %}
+{% block title %}Launch New Campaign — IntentLead AI{% endblock %}
+
+{% block breadcrumbs %}
+  <a href="/campaigns" style="color: var(--text-muted); text-decoration: none;">Campaigns</a> 
+  <span class="sub">/ Launch New Campaign</span>
+{% endblock %}
 
 {% block content %}
-<div class="card" style="max-width: 600px; margin: 0 auto;">
-  <h2>Create Discovery Campaign</h2>
-  <form method="POST" action="/campaigns/new">
-    <div style="margin-bottom: 1rem;">
-      <label style="display: block; margin-bottom: 0.3rem; color: var(--muted);">Target Niche</label>
-      <input type="text" name="niche" value="Real Estate Agencies" required style="width: 100%; padding: 0.5rem; border-radius: 4px; border: 1px solid var(--border); background: #0f172a; color: #fff;">
-    </div>
+<div style="max-width: 800px; margin: 0 auto;">
+  <div style="margin-bottom: 2rem;">
+    <div class="micro-label" style="margin-bottom: 0.35rem; color: var(--accent-mint);">CAMPAIGN PROVISIONING WIZARD</div>
+    <h1 style="font-size: 2.2rem; line-height: 1.15;">
+      Initialize <span class="highlight-lime">Targeting Matrix</span>
+    </h1>
+    <p style="color: var(--text-muted); margin-top: 0.5rem; font-size: 0.95rem;">
+      Define industry parameters, geographic discovery boundaries, and digital service gap evaluation criteria.
+    </p>
+  </div>
 
-    <div style="margin-bottom: 1rem;">
-      <label style="display: block; margin-bottom: 0.3rem; color: var(--muted);">Location</label>
-      <input type="text" name="location" value="Dallas, Texas" required style="width: 100%; padding: 0.5rem; border-radius: 4px; border: 1px solid var(--border); background: #0f172a; color: #fff;">
-    </div>
+  <div class="card" style="padding: 2rem;">
+    <form method="POST" action="/campaigns/new">
+      
+      <!-- Section 1: Target Definition -->
+      <div style="margin-bottom: 1.75rem;">
+        <div class="micro-label" style="color: var(--text-main); margin-bottom: 0.75rem;">1. TARGET MARKET & LOCATION</div>
+        
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem;">
+          <div>
+            <label class="form-label">Industry Niche / Category</label>
+            <input type="text" name="niche" id="niche-input" value="Real Estate Agencies" required class="form-control" placeholder="e.g. Cosmetic Dentists, HVAC Contractors">
+            <div style="display: flex; gap: 0.35rem; margin-top: 0.4rem; flex-wrap: wrap;">
+              <span class="micro-label" style="font-size: 0.65rem;">Quick:</span>
+              <button type="button" onclick="document.getElementById('niche-input').value='Real Estate Agencies'" class="badge badge-neutral" style="cursor: pointer; border: 1px solid #CBD5E1;">Real Estate</button>
+              <button type="button" onclick="document.getElementById('niche-input').value='Dental Clinics'" class="badge badge-neutral" style="cursor: pointer; border: 1px solid #CBD5E1;">Dental</button>
+              <button type="button" onclick="document.getElementById('niche-input').value='B2B Law Firms'" class="badge badge-neutral" style="cursor: pointer; border: 1px solid #CBD5E1;">Law Firms</button>
+            </div>
+          </div>
 
-    <div style="margin-bottom: 1rem;">
-      <label style="display: block; margin-bottom: 0.3rem; color: var(--muted);">Requested Quantity (Max 25 for MVP)</label>
-      <input type="number" name="requested_quantity" min="1" max="25" value="10" required style="width: 100%; padding: 0.5rem; border-radius: 4px; border: 1px solid var(--border); background: #0f172a; color: #fff;">
-    </div>
-
-    <div style="margin-bottom: 1rem;">
-      <label style="display: block; margin-bottom: 0.3rem; color: var(--muted);">Discovery Provider</label>
-      <select name="provider" style="width: 100%; padding: 0.5rem; border-radius: 4px; border: 1px solid var(--border); background: #0f172a; color: #fff;">
-        <option value="mock" selected>Mock Scraper (offline fixtures)</option>
-        <option value="live">Live Google Maps Scraper (gosom)</option>
-        <option value="import">Import (manual CSV/JSON)</option>
-      </select>
-    </div>
-
-    <div style="margin-bottom: 1.5rem;">
-      <label style="display: block; margin-bottom: 0.5rem; color: var(--muted);">Target Services</label>
-      <div style="display: grid; grid-template-columns: 1fr; gap: 0.5rem;">
-        <label><input type="checkbox" name="target_services" value="website_development" checked> Website Development</label>
-        <label><input type="checkbox" name="target_services" value="website_redesign" checked> Website Redesign</label>
-        <label><input type="checkbox" name="target_services" value="real_estate_listing_portal" checked> Real Estate Listing Portal</label>
-        <label><input type="checkbox" name="target_services" value="ai_chatbot" checked> AI Chatbot</label>
-        <label><input type="checkbox" name="target_services" value="business_process_automation" checked> Business Process Automation</label>
-        <label><input type="checkbox" name="target_services" value="lead_management_followup" checked> Lead Management & Follow-up</label>
-        <label><input type="checkbox" name="target_services" value="crm_appointment_automation" checked> CRM Appointment Automation</label>
+          <div>
+            <label class="form-label">Geographic Target (City, State / Metro)</label>
+            <input type="text" name="location" id="location-input" value="Dallas, Texas" required class="form-control" placeholder="e.g. Austin, Texas or London, UK">
+            <div style="display: flex; gap: 0.35rem; margin-top: 0.4rem; flex-wrap: wrap;">
+              <span class="micro-label" style="font-size: 0.65rem;">Quick:</span>
+              <button type="button" onclick="document.getElementById('location-input').value='Dallas, Texas'" class="badge badge-neutral" style="cursor: pointer; border: 1px solid #CBD5E1;">Dallas</button>
+              <button type="button" onclick="document.getElementById('location-input').value='Austin, Texas'" class="badge badge-neutral" style="cursor: pointer; border: 1px solid #CBD5E1;">Austin</button>
+              <button type="button" onclick="document.getElementById('location-input').value='Chicago, IL'" class="badge badge-neutral" style="cursor: pointer; border: 1px solid #CBD5E1;">Chicago</button>
+            </div>
+          </div>
+        </div>
       </div>
-    </div>
 
-    <button type="submit" class="btn" style="width: 100%;">Launch Campaign</button>
-  </form>
+      <!-- Section 2: Discovery Provider & Quotas -->
+      <div style="margin-bottom: 1.75rem; padding-top: 1.5rem; border-top: 1.5px solid var(--border-subtle);">
+        <div class="micro-label" style="color: var(--text-main); margin-bottom: 0.75rem;">2. RECONNAISSANCE ENGINE & VOLUME</div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem;">
+          <div>
+            <label class="form-label">Discovery Provider</label>
+            <select name="provider" class="form-control">
+              <option value="mock" selected>Mock Scraper (offline fixtures)</option>
+              <option value="live">Live Maps Scraper (port :8080)</option>
+              <option value="import">Import (Manual CSV/JSON)</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="form-label">Quantity to Scrape</label>
+            <input type="number" name="requested_quantity" min="1" max="50" value="10" required class="form-control">
+            <span class="mono" style="font-size: 0.72rem; color: var(--text-muted);">Max 50 for staging batch</span>
+          </div>
+
+          <div>
+            <label class="form-label">Target Outreach Quota</label>
+            <input type="number" name="target_sent_emails" min="1" max="500" value="50" required class="form-control">
+            <span class="mono" style="font-size: 0.72rem; color: var(--text-muted);">Campaign throttle limit</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Section 3: Digital Service Gap Target Criteria -->
+      <div style="margin-bottom: 2rem; padding-top: 1.5rem; border-top: 1.5px solid var(--border-subtle);">
+        <div class="micro-label" style="color: var(--text-main); margin-bottom: 0.5rem;">3. SERVICE GAP SCORING TARGETS</div>
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
+          Select the agency capabilities our AI analyzer will score against discovered business technical footprints:
+        </p>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+          <label style="display: flex; align-items: center; gap: 0.6rem; padding: 0.6rem; background: var(--bg-canvas); border: 1.5px solid var(--border-subtle); border-radius: 4px; cursor: pointer;">
+            <input type="checkbox" name="target_services" value="website_development" checked style="width: 16px; height: 16px;">
+            <span style="font-size: 0.88rem; font-weight: 600;">Website Development</span>
+          </label>
+
+          <label style="display: flex; align-items: center; gap: 0.6rem; padding: 0.6rem; background: var(--bg-canvas); border: 1.5px solid var(--border-subtle); border-radius: 4px; cursor: pointer;">
+            <input type="checkbox" name="target_services" value="website_redesign" checked style="width: 16px; height: 16px;">
+            <span style="font-size: 0.88rem; font-weight: 600;">Website Redesign</span>
+          </label>
+
+          <label style="display: flex; align-items: center; gap: 0.6rem; padding: 0.6rem; background: var(--bg-canvas); border: 1.5px solid var(--border-subtle); border-radius: 4px; cursor: pointer;">
+            <input type="checkbox" name="target_services" value="real_estate_listing_portal" checked style="width: 16px; height: 16px;">
+            <span style="font-size: 0.88rem; font-weight: 600;">Real Estate Listing Portal</span>
+          </label>
+
+          <label style="display: flex; align-items: center; gap: 0.6rem; padding: 0.6rem; background: var(--bg-canvas); border: 1.5px solid var(--border-subtle); border-radius: 4px; cursor: pointer;">
+            <input type="checkbox" name="target_services" value="ai_chatbot" checked style="width: 16px; height: 16px;">
+            <span style="font-size: 0.88rem; font-weight: 600;">AI Chatbot & Automation</span>
+          </label>
+
+          <label style="display: flex; align-items: center; gap: 0.6rem; padding: 0.6rem; background: var(--bg-canvas); border: 1.5px solid var(--border-subtle); border-radius: 4px; cursor: pointer;">
+            <input type="checkbox" name="target_services" value="business_process_automation" checked style="width: 16px; height: 16px;">
+            <span style="font-size: 0.88rem; font-weight: 600;">Process Automation</span>
+          </label>
+
+          <label style="display: flex; align-items: center; gap: 0.6rem; padding: 0.6rem; background: var(--bg-canvas); border: 1.5px solid var(--border-subtle); border-radius: 4px; cursor: pointer;">
+            <input type="checkbox" name="target_services" value="lead_management_followup" checked style="width: 16px; height: 16px;">
+            <span style="font-size: 0.88rem; font-weight: 600;">Lead Management & CRM</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Submit & Dry Run Note -->
+      <div style="display: flex; align-items: center; justify-content: space-between; padding-top: 1.5rem; border-top: 1.5px solid var(--border-subtle);">
+        <div style="font-size: 0.82rem; color: var(--text-muted);">
+          🔒 Guardrail: Campaign runs with <span class="mono" style="font-weight: 600; color: #D97706;">DRY_RUN=True</span>. No real emails will be sent.
+        </div>
+        <button type="submit" class="btn btn-primary" style="padding: 0.75rem 2rem; font-size: 1rem;">
+          ⚡ Launch Discovery Pipeline &rarr;
+        </button>
+      </div>
+
+    </form>
+  </div>
 </div>
 {% endblock %}

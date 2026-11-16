@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+
+{% block title %}Mailbox Pool & Quotas — IntentLead AI{% endblock %}
+
+{% block breadcrumbs %}
+  <span>IntentLead</span> <span class="sub">/ Mailbox Pool & Quotas</span>
+{% endblock %}
+
+{% block content %}
+<div style="margin-bottom: 2rem;">
+  <div class="micro-label" style="margin-bottom: 0.35rem; color: var(--accent-mint);">OUTREACH INFRASTRUCTURE & REPUTATION</div>
+  <div style="display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
+    <div>
+      <h1 style="font-size: 2.2rem; line-height: 1.15;">
+        Mailbox Rotation & <span class="highlight-lime">Quota Plane</span>
+      </h1>
+      <p style="color: var(--text-muted); margin-top: 0.5rem; font-size: 0.95rem;">
+        Multi-account load distribution, daily delivery throttles, and credential encryption protection.
+      </p>
+    </div>
+    <button onclick="openModal('add-mailbox-modal')" class="btn btn-primary">
+      <span>+</span> Provision Mailbox
+    </button>
+  </div>
+</div>
+
+<!-- Quota Metrics Grid -->
+<div class="metrics-grid">
+  <div class="metric-card">
+    <div class="metric-header">
+      <span class="micro-label">ACTIVE MAILBOXES</span>
+      <span class="mono" style="font-size: 0.8rem; color: var(--accent-mint);">POOL</span>
+    </div>
+    <div class="metric-value">{{ total_active }}</div>
+    <div class="metric-footer">
+      <span>Authenticated SMTP accounts</span>
+    </div>
+  </div>
+
+  <div class="metric-card">
+    <div class="metric-header">
+      <span class="micro-label">TOTAL DAILY CAPACITY</span>
+      <span class="mono" style="font-size: 0.8rem; color: var(--accent-blue);">QUOTA</span>
+    </div>
+    <div class="metric-value">{{ total_capacity }}</div>
+    <div class="metric-footer">
+      <span>Max safe emails per 24 hours</span>
+    </div>
+  </div>
+
+  <div class="metric-card">
+    <div class="metric-header">
+      <span class="micro-label">SECURITY STATUS</span>
+      <span class="badge badge-approved">SECURE</span>
+    </div>
+    <div class="metric-value" style="font-size: 1.5rem; color: #065F46;">AES-256</div>
+    <div class="metric-footer">
+      <span>Fernet authenticated encryption active</span>
+    </div>
+  </div>
+</div>
+
+<!-- Security Architecture Callout -->
+<div class="card" style="background-color: #F8FAFC; border: 1.5px dashed var(--border-color); padding: 1rem 1.25rem;">
+  <div style="display: flex; align-items: flex-start; gap: 0.75rem;">
+    <span style="font-size: 1.25rem;">🔒</span>
+    <div>
+      <div style="font-weight: 700; font-size: 0.9rem;">Zero Plaintext Storage Guarantee</div>
+      <div style="font-size: 0.82rem; color: var(--text-muted); margin-top: 0.2rem;">
+        All SMTP credentials and Google App Passwords are encrypted before database insertion using a dedicated <span class="mono" style="color: var(--text-main);">FIELD_ENCRYPTION_KEY</span>. Passwords are never echoed in logs, API payloads, or client DOM nodes.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Mailbox Accounts Table -->
+<div class="card" style="padding: 0; overflow: hidden;">
+  <div class="card-header" style="margin: 0; padding: 1.25rem;">
+    <div class="card-title">
+      <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+      <span>Registered Mailbox Pool</span>
+    </div>
+    <span class="micro-label">ROUND-ROBIN DISPATCH</span>
+  </div>
+
+  <div class="table-responsive">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Mailbox Account Email</th>
+          <th>Sender Display Name</th>
+          <th>Daily Quota Usage</th>
+          <th>Remaining Quota</th>
+          <th>Status</th>
+          <th>Credentials</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in mailboxes %}
+        {% set mb = item.account %}
+        <tr>
+          <td>
+            <div class="mono" style="font-weight: 700; font-size: 0.92rem;">
+              {{ mb.email }}
+            </div>
+            <div class="mono" style="font-size: 0.72rem; color: var(--text-muted);">
+              ID: {{ mb.id }}
+            </div>
+          </td>
+
+          <td>
+            <div style="font-weight: 600;">{{ mb.sender_name }}</div>
+          </td>
+
+          <td style="min-width: 180px;">
+            <div style="display: flex; justify-content: space-between; font-size: 0.78rem; margin-bottom: 0.35rem;">
+              <span class="mono">{{ item.sent_today }} / {{ mb.daily_limit }}</span>
+              <span class="mono" style="font-weight: 600;">{{ item.percent_used }}%</span>
+            </div>
+            <div style="height: 6px; background: #E2DFD8; border-radius: 3px; overflow: hidden; border: 1px solid #CBD5E1;">
+              <div style="width: {{ item.percent_used }}%; height: 100%;
+                {% if item.percent_used > 80 %}background-color: var(--accent-red);
+                {% else %}background-color: var(--accent-mint);{% endif %}">
+              </div>
+            </div>
+          </td>
+
+          <td>
+            <span class="mono" style="font-weight: 700; font-size: 0.95rem;">
+              {{ item.remaining }} <span style="font-size: 0.75rem; color: var(--text-muted);">left today</span>
+            </span>
+          </td>
+
+          <td>
+            {% if mb.is_active %}
+              <span class="badge badge-approved">Active</span>
+            {% else %}
+              <span class="badge badge-neutral">Paused</span>
+            {% endif %}
+          </td>
+
+          <td>
+            <span class="mono" style="font-size: 0.78rem; color: var(--accent-mint);">
+              •••••••• (Encrypted)
+            </span>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="6" style="text-align: center; padding: 3rem; color: var(--text-muted);">
+            No mailbox accounts provisioned. Click "+ Provision Mailbox" to add your sending infrastructure.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Modal: Provision New Mailbox -->
+<div id="add-mailbox-modal" class="modal-backdrop">
+  <div class="card" style="max-width: 500px; width: 90%; margin: 4rem auto; background: var(--bg-surface); padding: 2rem; position: relative;">
+    <div class="card-header" style="margin-bottom: 1.25rem;">
+      <div class="card-title">
+        <span>Provision Mailbox Account</span>
+      </div>
+      <button onclick="closeModal('add-mailbox-modal')" style="background: none; border: none; font-size: 1.25rem; cursor: pointer; color: var(--text-muted);">
+        ✕
+      </button>
+    </div>
+
+    <form method="POST" action="/mailboxes/new">
+      <div style="margin-bottom: 1rem;">
+        <label class="form-label">Email Address (Google Workspace / SMTP)</label>
+        <input type="email" name="email" required class="form-control" placeholder="outreach@yourdomain.com">
+      </div>
+
+      <div style="margin-bottom: 1rem;">
+        <label class="form-label">App Password (Encrypted with AES-256)</label>
+        <input type="password" name="password" required class="form-control" placeholder="16-character Google App Password">
+        <span class="mono" style="font-size: 0.72rem; color: var(--text-muted);">Never stored in plaintext. Encrypted via Fernet key.</span>
+      </div>
+
+      <div style="margin-bottom: 1rem;">
+        <label class="form-label">Sender Display Name</label>
+        <input type="text" name="sender_name" required class="form-control" placeholder="e.g. Roy from Ori9in">
+      </div>
+
+      <div style="margin-bottom: 1.5rem;">
+        <label class="form-label">Daily Outbound Limit</label>
+        <input type="number" name="daily_limit" value="50" min="5" max="250" required class="form-control">
+        <span class="mono" style="font-size: 0.72rem; color: var(--text-muted);">Recommended 50 for domain reputation warm-up.</span>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 0.75rem;">
+        <button type="button" onclick="closeModal('add-mailbox-modal')" class="btn btn-secondary btn-sm">Cancel</button>
+        <button type="submit" class="btn btn-primary btn-sm">Save & Encrypt</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

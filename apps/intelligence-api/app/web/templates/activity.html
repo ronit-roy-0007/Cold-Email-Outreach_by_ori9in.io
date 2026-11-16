@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+
+{% block title %}Activity & Audit History — IntentLead AI{% endblock %}
+
+{% block breadcrumbs %}
+  <span>IntentLead</span> <span class="sub">/ System Activity & Audit Trail</span>
+{% endblock %}
+
+{% block content %}
+<div style="margin-bottom: 2rem;">
+  <div class="micro-label" style="margin-bottom: 0.35rem; color: var(--accent-mint);">IMMUTABLE COMPLIANCE & SECURITY LOG</div>
+  <div style="display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
+    <div>
+      <h1 style="font-size: 2.2rem; line-height: 1.15;">
+        Audit Trail & <span class="highlight-lime">System Activity</span>
+      </h1>
+      <p style="color: var(--text-muted); margin-top: 0.5rem; font-size: 0.95rem;">
+        Complete chronological ledger of operator approval decisions, security events, and dispatch actions.
+      </p>
+    </div>
+    <div class="mono" style="font-size: 0.85rem; background: var(--bg-surface); border: 1.5px solid var(--border-color); padding: 0.4rem 0.75rem; border-radius: 4px; box-shadow: 1.5px 1.5px 0px #0F172A;">
+      <span>{{ logs|length }} Audit Records</span>
+    </div>
+  </div>
+</div>
+
+<!-- Operator Approvals Stream -->
+<div class="card" style="padding: 0; overflow: hidden; margin-bottom: 2rem;">
+  <div class="card-header" style="margin: 0; padding: 1.25rem;">
+    <div class="card-title">
+      <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+      <span>Human Operator Approval Ledger</span>
+    </div>
+    <span class="micro-label">GATE DECISION LOG</span>
+  </div>
+
+  <div class="table-responsive">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Target Business</th>
+          <th>Decision</th>
+          <th>Operator Identity</th>
+          <th>Lead Score</th>
+          <th>Timestamp</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for app, lead, biz in approvals %}
+        <tr>
+          <td>
+            <div style="font-weight: 700; font-size: 0.92rem;">
+              <a href="/leads/{{ lead.id }}" style="color: var(--text-main); text-decoration: none;">
+                {{ biz.name }}
+              </a>
+            </div>
+            <div class="mono" style="font-size: 0.72rem; color: var(--text-muted);">
+              Lead ID: {{ lead.id }}
+            </div>
+          </td>
+
+          <td>
+            {% if app.decision == 'approve' %}
+              <span class="badge badge-approved">Approved</span>
+            {% else %}
+              <span class="badge badge-failed">Rejected</span>
+            {% endif %}
+          </td>
+
+          <td>
+            <div class="mono" style="font-size: 0.85rem; font-weight: 600;">
+              {{ app.operator_id or 'api_operator' }}
+            </div>
+          </td>
+
+          <td>
+            <span class="mono" style="font-weight: 700;">
+              {{ lead.overall_score }} / 100
+            </span>
+          </td>
+
+          <td>
+            <span class="mono" style="font-size: 0.8rem; color: var(--text-muted);">
+              {{ app.created_at.strftime('%Y-%m-%d %H:%M:%S') if app.created_at else '—' }}
+            </span>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="5" style="text-align: center; padding: 2rem; color: var(--text-muted);">
+            No operator approval decisions logged yet.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- General System Audit Events Table -->
+<div class="card" style="padding: 0; overflow: hidden;">
+  <div class="card-header" style="margin: 0; padding: 1.25rem;">
+    <div class="card-title">
+      <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+      <span>System Security & Pipeline Audit Events</span>
+    </div>
+    <span class="micro-label">EVENT STREAM</span>
+  </div>
+
+  <div class="table-responsive">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Action Type</th>
+          <th>Actor</th>
+          <th>Entity Context</th>
+          <th>Event Timestamp</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in logs %}
+        <tr>
+          <td>
+            <span class="mono" style="font-weight: 700; font-size: 0.85rem; color: var(--accent-blue);">
+              {{ a.action }}
+            </span>
+          </td>
+
+          <td>
+            <span class="mono" style="font-size: 0.85rem;">
+              {{ a.actor or 'system_worker' }}
+            </span>
+          </td>
+
+          <td>
+            <div class="mono" style="font-size: 0.8rem; color: var(--text-muted);">
+              {{ a.entity_type or 'system' }} {% if a.entity_id %}&bull; {{ a.entity_id }}{% endif %}
+            </div>
+          </td>
+
+          <td>
+            <span class="mono" style="font-size: 0.8rem; color: var(--text-muted);">
+              {{ a.created_at.strftime('%Y-%m-%d %H:%M:%S') if a.created_at else '—' }}
+            </span>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="4" style="text-align: center; padding: 2rem; color: var(--text-muted);">
+            No audit events recorded.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+
+{% block title %}Approval Center — IntentLead AI{% endblock %}
+
+{% block breadcrumbs %}
+  <span>IntentLead</span> <span class="sub">/ Human Operator Approval Center</span>
+{% endblock %}
+
+{% block content %}
+<div style="margin-bottom: 2rem;">
+  <div class="micro-label" style="margin-bottom: 0.35rem; color: #D97706;">SECURITY MANDATE & COMPLIANCE GATE</div>
+  <div style="display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
+    <div>
+      <h1 style="font-size: 2.2rem; line-height: 1.15;">
+        Operator <span class="highlight-lime">Approval Queue</span>
+      </h1>
+      <p style="color: var(--text-muted); margin-top: 0.5rem; font-size: 0.95rem;">
+        Human verification gate: Review AI-personalized outreach drafts before database release to the dispatch engine.
+      </p>
+    </div>
+    <div style="display: flex; align-items: center; gap: 0.75rem;">
+      <span class="mono" style="font-size: 0.85rem; background: #FEF3C7; color: #92400E; border: 1.5px solid #F59E0B; padding: 0.45rem 0.85rem; border-radius: 4px; box-shadow: 1.5px 1.5px 0px #B45309; font-weight: 600;">
+        ⚠️ {{ pending_total }} Leads Awaiting Operator Sign-off
+      </span>
+    </div>
+  </div>
+</div>
+
+<!-- Campaign Filter Toolbar -->
+<div class="card" style="padding: 1rem 1.25rem; margin-bottom: 1.5rem;">
+  <form method="GET" action="/approvals" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
+    <div style="display: flex; align-items: center; gap: 0.75rem;">
+      <span class="micro-label">Filter Queue by Campaign:</span>
+      <select name="campaign_id" class="form-control" onchange="this.form.submit()" style="min-width: 250px;">
+        <option value="all" {% if selected_campaign == 'all' %}selected{% endif %}>All Campaigns ({{ pending_total }})</option>
+        {% for c in campaigns %}
+          <option value="{{ c.id }}" {% if selected_campaign == c.id|string %}selected{% endif %}>
+            {{ c.niche }} — {{ c.location }}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div style="font-size: 0.82rem; color: var(--text-muted);">
+      Approvals update live via asynchronous API call to <span class="mono">/api/orchestrator/approvals/{id}</span>
+    </div>
+  </form>
+</div>
+
+<!-- Approval Queue Feed -->
+{% if pending_leads %}
+<div style="display: flex; flex-direction: column; gap: 1.5rem;">
+  {% for lead, biz, camp, draft in pending_leads %}
+  <div class="card" id="lead-row-{{ lead.id }}" style="margin-bottom: 0; border-left: 5px solid var(--accent-amber);">
+    
+    <!-- Top Row: Business Identity & Score Header -->
+    <div style="display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.25rem; padding-bottom: 1rem; border-bottom: 1.5px solid var(--border-subtle);">
+      <div>
+        <div style="display: flex; align-items: center; gap: 0.6rem;">
+          <h2 style="font-size: 1.25rem;">
+            <a href="/leads/{{ lead.id }}" style="color: var(--text-main); text-decoration: none;">
+              {{ biz.name }}
+            </a>
+          </h2>
+          <span class="badge badge-priority-{{ lead.priority.lower() if lead.priority else 'b' }}">
+            Priority {{ lead.priority or 'B' }}
+          </span>
+          <span class="badge badge-draft">Draft</span>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 0.6rem; margin-top: 0.35rem; font-size: 0.82rem; color: var(--text-muted); flex-wrap: wrap;">
+          {% if biz.website %}
+            <a href="{{ biz.website }}" target="_blank" rel="noopener noreferrer" style="color: var(--accent-blue); text-decoration: underline;">
+              {{ biz.website }}
+            </a>
+            <span>&bull;</span>
+          {% endif %}
+          <span>{{ biz.locality or camp.location }}</span>
+          <span>&bull;</span>
+          <span>Campaign: <strong>{{ camp.niche }}</strong></span>
+          <span>&bull;</span>
+          <span>Source: <span class="mono">{{ biz.discovery_source }}</span></span>
+        </div>
+      </div>
+
+      <!-- Score & Contact Info -->
+      <div style="display: flex; align-items: center; gap: 1.25rem;">
+        <div style="text-align: right;">
+          <div class="micro-label">SCORE</div>
+          <div class="mono" style="font-size: 1.6rem; font-weight: 700; line-height: 1;
+            {% if lead.overall_score >= 80 %}color: #065F46;
+            {% elif lead.overall_score >= 60 %}color: #1E40AF;
+            {% else %}color: #92400E;{% endif %}">
+            {{ lead.overall_score }}<span style="font-size: 0.85rem; color: var(--text-muted);">/100</span>
+          </div>
+        </div>
+
+        <div style="text-align: right; border-left: 1.5px solid var(--border-subtle); padding-left: 1rem;">
+          <div class="micro-label">RECIPIENT INBOX</div>
+          <div class="mono" style="font-size: 0.85rem; font-weight: 600;">
+            {{ biz.email or 'No email found' }}
+          </div>
+          <div style="font-size: 0.72rem; color: var(--accent-mint); font-weight: 600;">
+            {{ '✓ Verified' if biz.email else '⚠️ Unverified' }}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Middle: AI Outreach Message Draft Preview -->
+    <div style="margin-bottom: 1.25rem;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem;">
+        <span class="micro-label" style="color: var(--accent-mint);">AI-GENERATED PERSONALIZED OUTREACH DRAFT:</span>
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <span class="mono" style="font-size: 0.72rem; color: var(--text-muted);">Service: <strong>{{ lead.recommended_service|replace('_', ' ')|title }}</strong></span>
+          {% if draft and draft.body %}
+            <button onclick="copyText(document.getElementById('draft-text-{{ lead.id }}').innerText, 'Draft copied')" class="btn btn-secondary btn-sm" style="padding: 0.15rem 0.45rem; font-size: 0.72rem;">
+              Copy
+            </button>
+          {% endif %}
+        </div>
+      </div>
+
+      {% if draft and draft.body %}
+        <div style="background-color: var(--bg-canvas); border: 1.5px solid var(--border-color); border-radius: 4px; padding: 1rem; font-family: var(--font-mono); font-size: 0.85rem; line-height: 1.6; white-space: pre-wrap; color: var(--text-main);" id="draft-text-{{ lead.id }}">
+{{ draft.body }}
+        </div>
+      {% elif draft and draft.not_recommended_reason %}
+        <div style="background-color: #FEF3C7; border: 1.5px solid #F59E0B; border-radius: 4px; padding: 0.75rem; color: #92400E; font-size: 0.85rem;">
+          Draft generation flagged: <strong>{{ draft.not_recommended_reason }}</strong>
+        </div>
+      {% else %}
+        <div style="background: #F8FAFC; border: 1px dashed var(--border-subtle); padding: 1rem; border-radius: 4px; color: var(--text-muted); font-size: 0.85rem;">
+          No generated message draft available for this lead.
+        </div>
+      {% endif %}
+    </div>
+
+    <!-- Bottom: Decision Controls -->
+    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; padding-top: 1rem; border-top: 1.5px solid var(--border-subtle);" class="actions-cell">
+      <div style="display: flex; align-items: center; gap: 0.75rem;">
+        <a href="/leads/{{ lead.id }}" class="btn btn-sm btn-secondary">
+          Deep Dive Details &rarr;
+        </a>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 0.75rem;">
+        <button onclick="handleLeadApproval('{{ lead.id }}', 'reject')" class="btn btn-sm btn-danger">
+          ✕ Reject Lead
+        </button>
+        <button onclick="handleLeadApproval('{{ lead.id }}', 'approve')" class="btn btn-sm btn-primary">
+          ✓ Approve for Outreach
+        </button>
+      </div>
+    </div>
+
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card" style="text-align: center; padding: 4rem 2rem;">
+  <span style="font-size: 2.5rem; display: block; margin-bottom: 0.75rem;">🎉</span>
+  <h2 style="font-size: 1.4rem; margin-bottom: 0.5rem;">Approval Queue Empty</h2>
+  <p style="color: var(--text-muted); max-width: 500px; margin: 0 auto 1.5rem;">
+    All discovered leads have been reviewed by operators or no pending drafts remain. You can launch a new campaign to discover more targets.
+  </p>
+  <a href="/campaigns/new" class="btn btn-primary">+ Launch New Campaign</a>
+</div>
+{% endif %}
+{% endblock %}

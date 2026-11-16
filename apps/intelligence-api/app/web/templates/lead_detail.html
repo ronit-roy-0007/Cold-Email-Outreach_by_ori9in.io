@@ -1,141 +1,336 @@
 {% extends "base.html" %}
 
-{% block title %}{{ business.name }} — Lead Details{% endblock %}
+{% block title %}{{ business.name }} — Lead Intelligence Deep Dive{% endblock %}
+
+{% block breadcrumbs %}
+  <a href="/leads" style="color: var(--text-muted); text-decoration: none;">Leads</a> 
+  <span class="sub">/ {{ business.name }}</span>
+{% endblock %}
 
 {% block content %}
-<div style="margin-bottom: 1.5rem;">
-  <a href="/campaigns/{{ lead.campaign_id }}" style="color: var(--primary); text-decoration: none;">&larr; Back to Campaign Leads</a>
-</div>
-
-<div style="display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem;">
+<!-- Header Bar with Return & Action Controls -->
+<div style="margin-bottom: 1.75rem; display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
   <div>
-    <!-- Business Info -->
-    <div class="card">
-      <div style="display: flex; justify-content: space-between; align-items: flex-start;">
-        <div>
-          <h2>{{ business.name }}</h2>
-          <p style="color: var(--muted); margin: 0.2rem 0;">{{ business.category }} &bull; {{ business.address or business.locality }}</p>
-          {% if business.website %}
-          <p style="margin: 0.2rem 0;"><a href="{{ business.website }}" target="_blank" style="color: var(--primary);">{{ business.website }}</a></p>
-          {% else %}
-          <p style="margin: 0.2rem 0; color: #f59e0b;">No website listed on discovery source</p>
-          {% endif %}
-          <p style="margin: 0.2rem 0; color: var(--muted); font-size: 0.9rem;">
-            Phone: {{ business.phone or 'None' }} &bull; Email: {{ business.email or 'None' }} &bull; Source: <span class="badge" style="background: #334155;">{{ business.discovery_source }}</span>
-          </p>
-        </div>
-        <div style="text-align: right;">
-          <div style="font-size: 2.2rem; font-weight: 700; color: var(--primary);">{{ lead.overall_score }}<span style="font-size: 1rem; color: var(--muted);">/100</span></div>
-          <div>Priority: <span class="badge badge-{{ lead.priority.lower() }}">{{ lead.priority }}</span> &bull; Confidence: <span class="badge" style="background: #334155;">{{ lead.confidence }}</span></div>
-        </div>
-      </div>
+    <div style="margin-bottom: 0.35rem;">
+      <a href="/leads" style="font-size: 0.82rem; font-weight: 600; text-decoration: none; color: var(--text-muted);">
+        &larr; Back to Lead Directory
+      </a>
     </div>
-
-    <!-- Outreach Draft Preview -->
-    <div class="card">
-      <h3>Outreach Draft (Dry-Run Preview)</h3>
-      <p style="color: var(--muted); font-size: 0.85rem; margin-top: -0.5rem; margin-bottom: 1rem;">
-        Status: <strong style="color: #38bdf8;">{{ draft.status if draft else 'None' }}</strong> &bull; Channel: <strong>{{ draft.channel if draft else 'None' }}</strong>
-      </p>
-
-      {% if draft and draft.body %}
-      <pre>{{ draft.body }}</pre>
-      <p style="color: var(--muted); font-size: 0.8rem; margin-top: 0.5rem;">
-        Cites Evidence IDs: {{ draft.evidence_ids }}
-      </p>
-      {% elif draft and draft.not_recommended_reason %}
-      <div style="background: #33200a; border: 1px solid #78350f; padding: 1rem; border-radius: 6px; color: #fef3c7;">
-        Draft not recommended: <strong>{{ draft.not_recommended_reason }}</strong>
-      </div>
-      {% else %}
-      <p style="color: var(--muted);">No draft available.</p>
-      {% endif %}
-    </div>
-
-    <!-- Evidence Records -->
-    <div class="card">
-      <h3>Evidence Records ({{ evidence|length }})</h3>
-      {% if not evidence %}
-      <p style="color: var(--muted);">No website evidence collected (uninspected or no website).</p>
-      {% else %}
-      <table>
-        <thead>
-          <tr>
-            <th>Claim</th>
-            <th>Type</th>
-            <th>Scope</th>
-            <th>Confidence</th>
-            <th>Caveat</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for e in evidence %}
-          <tr>
-            <td>
-              <strong>{{ e.claim }}</strong><br>
-              {% if e.source_url %}<span style="color: var(--muted); font-size: 0.75rem;">{{ e.source_url }}</span>{% endif %}
-            </td>
-            <td><span class="badge" style="background: #1e293b; border: 1px solid var(--border);">{{ e.evidence_type }}</span></td>
-            <td style="color: var(--muted); font-size: 0.85rem;">{{ e.inspected_scope or 'N/A' }}</td>
-            <td><span class="badge" style="background: #334155;">{{ e.confidence }}</span></td>
-            <td style="color: #f59e0b; font-size: 0.8rem;">{{ e.caveat or '' }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-      {% endif %}
+    <h1 style="font-size: 2.1rem; line-height: 1.15;">
+      {{ business.name }}
+    </h1>
+    <div style="display: flex; align-items: center; gap: 0.75rem; margin-top: 0.35rem; flex-wrap: wrap;">
+      <span class="badge badge-neutral">{{ business.category or 'B2B Enterprise' }}</span>
+      <span class="mono" style="font-size: 0.8rem; color: var(--text-muted);">{{ business.locality or business.address or 'Global' }}</span>
+      <span style="color: var(--border-subtle);">&bull;</span>
+      <span class="mono" style="font-size: 0.75rem; color: var(--text-muted);">Discovery: {{ business.discovery_source }}</span>
     </div>
   </div>
 
+  <!-- Operator Decision Gate Controls -->
+  <div style="display: flex; align-items: center; gap: 0.75rem;">
+    {% if lead.outreach_status in ('draft', 'pending') %}
+      <button onclick="handleLeadApproval('{{ lead.id }}', 'reject')" class="btn btn-danger">
+        ✕ Reject Lead
+      </button>
+      <button onclick="handleLeadApproval('{{ lead.id }}', 'approve')" class="btn btn-primary">
+        ✓ Approve for Outreach
+      </button>
+    {% elif lead.outreach_status == 'approved' %}
+      <span class="badge badge-approved" style="font-size: 0.88rem; padding: 0.5rem 1rem;">
+        ✓ Approved for Dispatch
+      </span>
+      <button onclick="handleLeadApproval('{{ lead.id }}', 'reject')" class="btn btn-secondary btn-sm">
+        Revoke Approval
+      </button>
+    {% else %}
+      <span class="badge badge-neutral" style="font-size: 0.88rem; padding: 0.5rem 1rem;">
+        Status: {{ lead.outreach_status|upper }}
+      </span>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Layout: 2 Columns (Main Body 2fr, Inspection Sidebar 1.15fr) -->
+<div style="display: grid; grid-template-columns: 2fr 1.15fr; gap: 1.5rem; align-items: start;">
+  
+  <!-- Left Column: Business Profile, AI Draft, Evidence Excerpts -->
   <div>
-    <!-- Dimension Breakdown -->
+    <!-- Business & Digital Footprint Overview Card -->
     <div class="card">
-      <h3>Dimension Scores</h3>
-      <table>
-        <thead>
-          <tr>
-            <th>Dimension</th>
-            <th>Points</th>
-            <th>Reason</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for d in dimensions %}
-          <tr>
-            <td>{{ d.dimension.replace('_', ' ') }}</td>
-            <td><strong>{{ d.points }}</strong> / {{ d.max_points }}</td>
-            <td style="font-size: 0.8rem; color: var(--muted);">{{ d.reason_code }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+      <div class="card-header">
+        <div class="card-title">
+          <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
+          <span>Business Footprint & Verified Identity</span>
+        </div>
+        <span class="mono" style="font-size: 0.75rem; color: var(--text-muted);">ID: {{ lead.id }}</span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.25rem;">
+        <div>
+          <div class="micro-label">PRIMARY WEBSITE</div>
+          {% if business.website %}
+            <a href="{{ business.website }}" target="_blank" rel="noopener noreferrer" style="font-weight: 600; font-size: 0.95rem; color: var(--accent-blue); text-decoration: underline; word-break: break-all;">
+              {{ business.website }} &nearr;
+            </a>
+          {% else %}
+            <span class="mono" style="color: var(--accent-amber); font-size: 0.9rem;">No Website Discovered</span>
+          {% endif %}
+        </div>
+
+        <div>
+          <div class="micro-label">DIRECT INBOX / EMAIL</div>
+          {% if business.email %}
+            <div class="mono" style="font-weight: 600; font-size: 0.92rem; color: var(--text-main);">
+              {{ business.email }}
+            </div>
+            <span style="font-size: 0.75rem; color: var(--accent-mint); font-weight: 600;">✓ MX & Syntax Validated</span>
+          {% else %}
+            <span class="mono" style="color: var(--text-subtle); font-size: 0.9rem;">None Extracted</span>
+          {% endif %}
+        </div>
+
+        <div>
+          <div class="micro-label">TELEPHONE</div>
+          <div class="mono" style="font-size: 0.92rem;">
+            {{ business.phone or 'Not Disclosed' }}
+          </div>
+        </div>
+
+        <div>
+          <div class="micro-label">LOCATION</div>
+          <div style="font-size: 0.9rem; font-weight: 500;">
+            {{ business.address or business.locality or 'Unknown Locality' }}
+          </div>
+        </div>
+      </div>
+
+      <!-- Social Channels -->
+      {% if socials %}
+      <div style="padding-top: 0.85rem; border-top: 1px dashed var(--border-subtle); display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
+        <span class="micro-label">Social Footprint:</span>
+        {% for platform, url in socials.items() %}
+          <a href="{{ url }}" target="_blank" rel="noopener noreferrer" class="badge badge-neutral" style="text-decoration: underline;">
+            {{ platform|title }} &nearr;
+          </a>
+        {% endfor %}
+      </div>
+      {% endif %}
     </div>
 
-    <!-- Service Fit Scores -->
-    <div class="card">
-      <h3>Service-Fit Scores</h3>
-      <table>
-        <thead>
-          <tr>
-            <th>Service</th>
-            <th>Score</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for s in service_scores %}
-          <tr>
-            <td>
-              {{ s.service.replace('_', ' ') }}
-              {% if lead.recommended_service == s.service %}
-              <br><span class="badge" style="background: #065f46; color: #a7f3d0; font-size: 0.7rem;">Recommended</span>
-              {% endif %}
-            </td>
-            <td><strong>{{ s.points }}</strong> / 100</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+    <!-- AI Personalized Email Draft Card -->
+    <div class="card" style="border-left: 4px solid var(--accent-lime);">
+      <div class="card-header">
+        <div class="card-title">
+          <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+          <span>Gemini AI Personalized Message Draft</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <span class="mono" style="font-size: 0.75rem; color: var(--text-muted);">
+            Channel: <strong>{{ draft.channel if draft else 'EMAIL' }}</strong>
+          </span>
+          {% if draft and draft.body %}
+            <button onclick="copyText(document.getElementById('draft-body-text').innerText, 'Draft copied')" class="btn btn-secondary btn-sm" style="padding: 0.2rem 0.5rem;">
+              Copy
+            </button>
+          {% endif %}
+        </div>
+      </div>
+
+      {% if draft and draft.body %}
+        <div style="background-color: var(--bg-canvas); border: 1.5px solid var(--border-color); border-radius: 4px; padding: 1.25rem; margin-bottom: 1rem;">
+          <div class="mono" id="draft-body-text" style="font-size: 0.88rem; line-height: 1.65; white-space: pre-wrap; color: var(--text-main);">{{ draft.body }}</div>
+        </div>
+
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; font-size: 0.78rem; color: var(--text-muted);">
+          <div>
+            <span class="micro-label">Grounding Evidence Citations:</span>
+            <span class="mono">{{ draft.evidence_ids or 'Technical website gap analysis' }}</span>
+          </div>
+          <div>
+            Status: <span class="badge badge-draft">{{ draft.status }}</span>
+          </div>
+        </div>
+      {% elif draft and draft.not_recommended_reason %}
+        <div style="background-color: #FEF3C7; border: 1.5px solid #F59E0B; border-radius: 4px; padding: 1rem; color: #92400E;">
+          <strong>Draft Generation Suppressed:</strong> {{ draft.not_recommended_reason }}
+        </div>
+      {% else %}
+        <div style="text-align: center; padding: 2rem; color: var(--text-muted);">
+          No AI message draft generated for this lead.
+        </div>
+      {% endif %}
     </div>
+
+    <!-- Reconnaissance Evidence & Technical Gaps Card -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">
+          <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+          <span>Reconnaissance Evidence Records ({{ evidence|length }})</span>
+        </div>
+        <span class="micro-label">HARD GROUNDING DATA</span>
+      </div>
+
+      {% if evidence %}
+      <div class="table-responsive">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Detected Claim / Finding</th>
+              <th>Type</th>
+              <th>Confidence</th>
+              <th>Caveat / Context</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for e in evidence %}
+            <tr>
+              <td>
+                <div style="font-weight: 600; font-size: 0.88rem;">{{ e.claim }}</div>
+                {% if e.source_url %}
+                  <div class="mono" style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.15rem;">
+                    {{ e.source_url|truncate(40) }}
+                  </div>
+                {% endif %}
+              </td>
+              <td>
+                <span class="badge badge-neutral mono" style="font-size: 0.72rem;">{{ e.evidence_type }}</span>
+              </td>
+              <td>
+                <span class="mono" style="font-size: 0.78rem; font-weight: 600;">{{ e.confidence }}</span>
+              </td>
+              <td>
+                <span style="font-size: 0.78rem; color: var(--text-muted);">{{ e.caveat or 'Direct observation' }}</span>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div style="text-align: center; padding: 2rem; color: var(--text-muted); font-size: 0.9rem;">
+        No specific technical evidence recorded (uninspected or non-responsive endpoint).
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Operator Approval Audit History -->
+    {% if approval_history %}
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">
+          <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          <span>Approval Audit Stream</span>
+        </div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 0.65rem;">
+        {% for app in approval_history %}
+        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem; padding-bottom: 0.5rem; border-bottom: 1px dashed var(--border-subtle);">
+          <div>
+            <span class="mono" style="font-weight: 600;">Decision: {{ app.decision|upper }}</span>
+            <span style="color: var(--text-muted);">by {{ app.operator_id or 'operator' }}</span>
+          </div>
+          <span class="mono" style="font-size: 0.75rem; color: var(--text-muted);">
+            {{ app.created_at.strftime('%Y-%m-%d %H:%M:%S') if app.created_at else '' }}
+          </span>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+  </div>
+
+  <!-- Right Sidebar: Score Breakdown, Dimension Analysis, Service Fit -->
+  <div>
+    <!-- Primary Score Card -->
+    <div class="card" style="text-align: center; padding: 1.75rem 1.25rem;">
+      <div class="micro-label" style="margin-bottom: 0.5rem;">COMPOSITE ACQUISITION SCORE</div>
+      <div style="font-family: var(--font-heading); font-size: 3.5rem; font-weight: 700; line-height: 1; letter-spacing: -0.04em;
+        {% if lead.overall_score >= 80 %}color: #065F46;
+        {% elif lead.overall_score >= 60 %}color: #1E40AF;
+        {% else %}color: #92400E;{% endif %}">
+        {{ lead.overall_score }}
+      </div>
+      <div style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.35rem;">out of 100 maximum rating</div>
+
+      <div style="display: flex; justify-content: center; gap: 0.6rem; margin-top: 1rem;">
+        <span class="badge badge-priority-{{ lead.priority.lower() if lead.priority else 'b' }}" style="font-size: 0.8rem;">
+          Priority {{ lead.priority or 'B' }}
+        </span>
+        <span class="badge badge-neutral" style="font-size: 0.8rem;">
+          Confidence: {{ lead.confidence }}
+        </span>
+      </div>
+
+      <div style="margin-top: 1.25rem; padding-top: 1rem; border-top: 1.5px solid var(--border-subtle); text-align: left;">
+        <div class="micro-label">PRIMARY SERVICE RECOMMENDATION</div>
+        <div style="font-weight: 700; font-size: 1.05rem; color: var(--text-main); margin-top: 0.25rem;">
+          {{ lead.recommended_service|replace('_', ' ')|title if lead.recommended_service else 'No Service Match' }}
+        </div>
+      </div>
+    </div>
+
+    <!-- 5-Dimension Score Breakdown -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">
+          <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+          <span>Dimension Analysis</span>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 1rem;">
+        {% for d in dimensions %}
+        <div>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
+            <span style="font-weight: 600; font-size: 0.85rem;">{{ d.dimension|replace('_', ' ')|title }}</span>
+            <span class="mono" style="font-size: 0.82rem; font-weight: 700;">{{ d.points }} / {{ d.max_points }}</span>
+          </div>
+          <div style="height: 6px; background: #E2DFD8; border-radius: 3px; overflow: hidden; border: 1px solid #CBD5E1;">
+            <div style="width: {{ (d.points / (d.max_points or 1)) * 100 }}%; height: 100%; background-color: var(--accent-lime);"></div>
+          </div>
+          <div class="mono" style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.25rem;">
+            Code: {{ d.reason_code }}
+          </div>
+        </div>
+        {% else %}
+        <div style="color: var(--text-muted); font-size: 0.85rem; text-align: center;">No dimension scores computed.</div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- Service-Fit Ranking -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">
+          <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+          <span>Service Fit Rankings</span>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+        {% for s in service_scores %}
+        <div style="padding: 0.65rem; background: var(--bg-canvas); border: 1.5px solid var(--border-subtle); border-radius: 4px; display: flex; justify-content: space-between; align-items: center;">
+          <div>
+            <div style="font-weight: 600; font-size: 0.85rem;">
+              {{ s.service|replace('_', ' ')|title }}
+            </div>
+            {% if lead.recommended_service == s.service %}
+              <span class="badge badge-approved" style="font-size: 0.65rem; margin-top: 0.2rem;">★ Recommended Fit</span>
+            {% endif %}
+          </div>
+          <div class="mono" style="font-weight: 700; font-size: 0.95rem;">
+            {{ s.points }} <span style="font-size: 0.75rem; color: var(--text-muted);">pts</span>
+          </div>
+        </div>
+        {% else %}
+        <div style="color: var(--text-muted); font-size: 0.85rem; text-align: center;">No service rankings evaluated.</div>
+        {% endfor %}
+      </div>
+    </div>
+
   </div>
 </div>
 {% endblock %}

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 import time
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -119,3 +121,8 @@ app.include_router(leads_router)
 app.include_router(orchestrator_router)
 app.include_router(outreach_router)
 app.include_router(web_router)
+
+# 5. Static Files Mounting
+static_dir = Path(__file__).resolve().parent / "web" / "static"
+if static_dir.is_dir():
+    app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")

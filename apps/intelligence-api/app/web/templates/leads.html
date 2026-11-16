@@ -1,71 +1,224 @@
 {% extends "base.html" %}
 
-{% block title %}Leads — {{ campaign.niche }} in {{ campaign.location }}{% endblock %}
+{% block title %}Lead Intelligence Directory — IntentLead AI{% endblock %}
+
+{% block breadcrumbs %}
+  <span>IntentLead</span> <span class="sub">/ Lead Intelligence Directory</span>
+{% endblock %}
 
 {% block content %}
-<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
-  <div>
-    <h2>{{ campaign.niche }}</h2>
-    <span style="color: var(--muted);">{{ campaign.location }} &bull; Provider: {{ campaign.provider }} &bull; Status: {{ campaign.status }}</span>
-  </div>
-  <div>
-    <a href="/campaigns/{{ campaign.id }}/export.csv" class="btn" style="background: #334155; color: #fff; margin-right: 0.5rem;">Download CSV</a>
-    <a href="/campaigns/new" class="btn">+ New Campaign</a>
+<div style="margin-bottom: 2rem;">
+  <div class="micro-label" style="margin-bottom: 0.35rem; color: var(--accent-mint);">LEAD INTELLIGENCE & EVALUATION</div>
+  <div style="display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
+    <div>
+      <h1 style="font-size: 2.2rem; line-height: 1.15;">
+        Multi-Dimensional <span class="highlight-lime">Lead Intelligence</span>
+      </h1>
+      <p style="color: var(--text-muted); margin-top: 0.5rem; font-size: 0.95rem;">
+        Scored against 5 architectural gap dimensions, evaluated for digital service fit, and verified for outreach.
+      </p>
+    </div>
+    <div>
+      <span class="mono" style="font-size: 0.85rem; background: var(--bg-surface); border: 1.5px solid var(--border-color); padding: 0.4rem 0.75rem; border-radius: 4px; box-shadow: 1.5px 1.5px 0px #0F172A;">
+        Showing <strong>{{ total_results }}</strong> Scored Leads
+      </span>
+    </div>
   </div>
 </div>
 
-{% if not leads %}
-<div class="card" style="text-align: center; padding: 3rem;">
-  <p style="color: var(--muted);">No leads scored for this campaign yet.</p>
+<!-- Search & Filtering Toolbar -->
+<div class="card" style="padding: 1.25rem; margin-bottom: 1.5rem;">
+  <form method="GET" action="/leads" style="display: flex; flex-direction: column; gap: 1rem;">
+    <div style="display: flex; gap: 1rem; flex-wrap: wrap; align-items: center;">
+      <!-- Search input -->
+      <div style="flex: 1; min-width: 260px; position: relative;">
+        <input 
+          type="text" 
+          name="q" 
+          id="table-search"
+          value="{{ q }}" 
+          class="form-control" 
+          placeholder="Filter by business name, city, email or domain..." 
+          style="padding-left: 2.25rem;"
+        >
+        <span style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--text-muted);">
+          🔍
+        </span>
+      </div>
+
+      <!-- Campaign dropdown -->
+      <div style="min-width: 200px;">
+        <select name="campaign_id" class="form-control" onchange="this.form.submit()">
+          <option value="all" {% if selected_campaign == 'all' %}selected{% endif %}>All Campaigns</option>
+          {% for c in campaigns %}
+            <option value="{{ c.id }}" {% if selected_campaign == c.id|string %}selected{% endif %}>
+              {{ c.niche }} ({{ c.location }})
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- Submit button -->
+      <button type="submit" class="btn btn-primary btn-sm">Filter</button>
+      {% if q or selected_status != 'all' or selected_priority != 'all' or selected_campaign != 'all' %}
+        <a href="/leads" class="btn btn-secondary btn-sm">Reset</a>
+      {% endif %}
+    </div>
+
+    <!-- Filter Chips Row -->
+    <div style="display: flex; gap: 1.5rem; flex-wrap: wrap; align-items: center; padding-top: 0.5rem; border-top: 1px dashed var(--border-subtle);">
+      <!-- Status chips -->
+      <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+        <span class="micro-label" style="margin-right: 0.25rem;">Status:</span>
+        <a href="/leads?q={{ q }}&status=all&priority={{ selected_priority }}&campaign_id={{ selected_campaign }}" 
+           class="filter-chip {% if selected_status == 'all' %}active{% endif %}">All</a>
+        <a href="/leads?q={{ q }}&status=draft&priority={{ selected_priority }}&campaign_id={{ selected_campaign }}" 
+           class="filter-chip {% if selected_status == 'draft' %}active{% endif %}">Draft / Pending</a>
+        <a href="/leads?q={{ q }}&status=approved&priority={{ selected_priority }}&campaign_id={{ selected_campaign }}" 
+           class="filter-chip {% if selected_status == 'approved' %}active{% endif %}">Approved</a>
+        <a href="/leads?q={{ q }}&status=simulated&priority={{ selected_priority }}&campaign_id={{ selected_campaign }}" 
+           class="filter-chip {% if selected_status == 'simulated' %}active{% endif %}">Simulated</a>
+      </div>
+
+      <!-- Priority chips -->
+      <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+        <span class="micro-label" style="margin-right: 0.25rem;">Priority:</span>
+        <a href="/leads?q={{ q }}&status={{ selected_status }}&priority=all&campaign_id={{ selected_campaign }}" 
+           class="filter-chip {% if selected_priority == 'all' %}active{% endif %}">All</a>
+        <a href="/leads?q={{ q }}&status={{ selected_status }}&priority=A&campaign_id={{ selected_campaign }}" 
+           class="filter-chip {% if selected_priority == 'A' %}active{% endif %}">Grade A (High)</a>
+        <a href="/leads?q={{ q }}&status={{ selected_status }}&priority=B&campaign_id={{ selected_campaign }}" 
+           class="filter-chip {% if selected_priority == 'B' %}active{% endif %}">Grade B (Med)</a>
+        <a href="/leads?q={{ q }}&status={{ selected_status }}&priority=C&campaign_id={{ selected_campaign }}" 
+           class="filter-chip {% if selected_priority == 'C' %}active{% endif %}">Grade C (Low)</a>
+      </div>
+    </div>
+  </form>
 </div>
-{% else %}
-<div class="card">
-  <table>
-    <thead>
-      <tr>
-        <th>Business Name</th>
-        <th>Category / Locality</th>
-        <th>Score</th>
-        <th>Priority</th>
-        <th>Confidence</th>
-        <th>Recommended Service</th>
-        <th>Source</th>
-        <th>Actions</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for l, b in leads %}
-      <tr>
-        <td>
-          <strong>{{ b.name }}</strong><br>
-          {% if b.website %}<a href="{{ b.website }}" target="_blank" style="color: var(--primary); font-size: 0.8rem;">{{ b.website }}</a>{% endif %}
-        </td>
-        <td>
-          {{ b.category or 'N/A' }}<br>
-          <span style="color: var(--muted); font-size: 0.85rem;">{{ b.locality or '' }}</span>
-        </td>
-        <td><strong>{{ l.overall_score }}</strong> / 100</td>
-        <td>
-          <span class="badge badge-{{ l.priority.lower() }}">{{ l.priority }}</span>
-        </td>
-        <td>
-          <span class="badge" style="background: #334155; color: #cbd5e1;">{{ l.confidence }}</span>
-        </td>
-        <td>
-          {% if l.recommended_service %}
-          <span style="color: #38bdf8;">{{ l.recommended_service.replace('_', ' ') }}</span>
-          {% else %}
-          <span style="color: var(--muted);">None (&lt; 40)</span>
-          {% endif %}
-        </td>
-        <td><span class="badge" style="background: #1e293b; border: 1px solid var(--border);">{{ b.discovery_source }}</span></td>
-        <td>
-          <a href="/leads/{{ l.id }}" class="btn" style="padding: 0.3rem 0.6rem; font-size: 0.85rem;">Details & Draft</a>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+
+<!-- Main Leads Data Table -->
+<div class="card" style="padding: 0; overflow: hidden;">
+  <div class="table-responsive">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Business & Locality</th>
+          <th>Lead Score</th>
+          <th>Priority & Confidence</th>
+          <th>Recommended Service</th>
+          <th>Contact & Email</th>
+          <th>Outreach Status</th>
+          <th style="text-align: right;">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for lead, biz, camp in leads %}
+        <tr id="lead-row-{{ lead.id }}" data-status="{{ lead.outreach_status }}" data-priority="{{ lead.priority }}">
+          <!-- Business & Locality -->
+          <td>
+            <div style="font-weight: 700; font-size: 0.95rem;">
+              <a href="/leads/{{ lead.id }}" style="color: var(--text-main); text-decoration: none;">
+                {{ biz.name }}
+              </a>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.2rem;">
+              {% if biz.website %}
+                <a href="{{ biz.website }}" target="_blank" rel="noopener noreferrer" style="font-size: 0.78rem; color: var(--accent-blue); text-decoration: underline;">
+                  {{ biz.website|replace('https://', '')|replace('http://', '')|truncate(26) }}
+                </a>
+              {% else %}
+                <span class="mono" style="font-size: 0.75rem; color: var(--text-subtle);">No website</span>
+              {% endif %}
+              <span style="color: var(--border-subtle);">&bull;</span>
+              <span style="font-size: 0.78rem; color: var(--text-muted);">{{ biz.locality or camp.location }}</span>
+            </div>
+          </td>
+
+          <!-- Lead Score -->
+          <td>
+            <div style="display: flex; align-items: center; gap: 0.6rem;">
+              <span class="mono" style="font-weight: 700; font-size: 1.15rem; min-width: 32px; text-align: right;
+                {% if lead.overall_score >= 80 %}color: #065F46;
+                {% elif lead.overall_score >= 60 %}color: #1E40AF;
+                {% else %}color: #92400E;{% endif %}">
+                {{ lead.overall_score }}
+              </span>
+              <div style="width: 55px; height: 7px; background: #E2DFD8; border-radius: 3px; overflow: hidden; border: 1px solid #CBD5E1;">
+                <div style="width: {{ lead.overall_score }}%; height: 100%;
+                  {% if lead.overall_score >= 80 %}background-color: var(--accent-mint);
+                  {% elif lead.overall_score >= 60 %}background-color: var(--accent-blue);
+                  {% else %}background-color: var(--accent-amber);{% endif %}">
+                </div>
+              </div>
+            </div>
+          </td>
+
+          <!-- Priority & Confidence -->
+          <td>
+            <div style="display: flex; align-items: center; gap: 0.4rem;">
+              <span class="badge badge-priority-{{ lead.priority.lower() if lead.priority else 'b' }}">
+                Priority {{ lead.priority or 'B' }}
+              </span>
+              <span class="mono" style="font-size: 0.72rem; color: var(--text-muted); background: #F1F5F9; padding: 0.15rem 0.4rem; border-radius: 3px;">
+                {{ lead.confidence }} conf
+              </span>
+            </div>
+          </td>
+
+          <!-- Recommended Service -->
+          <td>
+            {% if lead.recommended_service %}
+              <span class="badge" style="background-color: #EFF6FF; color: #1E40AF; border: 1px solid #BFDBFE;">
+                {{ lead.recommended_service|replace('_', ' ')|title }}
+              </span>
+            {% else %}
+              <span class="mono" style="font-size: 0.75rem; color: var(--text-subtle);">None Identified</span>
+            {% endif %}
+          </td>
+
+          <!-- Contact & Email -->
+          <td>
+            {% if biz.email %}
+              <div class="mono" style="font-size: 0.8rem; font-weight: 600; color: var(--text-main);">
+                {{ biz.email }}
+              </div>
+              <div style="font-size: 0.72rem; color: var(--accent-mint);">✓ Verified Address</div>
+            {% else %}
+              <span class="mono" style="font-size: 0.75rem; color: var(--text-subtle);">No Direct Email</span>
+            {% endif %}
+          </td>
+
+          <!-- Outreach Status -->
+          <td class="status-cell">
+            {% if lead.outreach_status == 'approved' %}
+              <span class="badge badge-approved">Approved</span>
+            {% elif lead.outreach_status == 'draft' or lead.outreach_status == 'pending' %}
+              <span class="badge badge-draft">Draft (Review)</span>
+            {% elif lead.outreach_status == 'sent' %}
+              <span class="badge badge-approved">Dispatched</span>
+            {% elif lead.outreach_status == 'simulated' %}
+              <span class="badge badge-neutral">Simulated</span>
+            {% else %}
+              <span class="badge badge-neutral">{{ lead.outreach_status }}</span>
+            {% endif %}
+          </td>
+
+          <!-- Actions -->
+          <td class="actions-cell" style="text-align: right;">
+            <a href="/leads/{{ lead.id }}" class="btn btn-sm btn-secondary" style="padding: 0.35rem 0.75rem;">
+              Inspect &rarr;
+            </a>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="7" style="text-align: center; padding: 3rem; color: var(--text-muted);">
+            No leads found matching current query or filters.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
-{% endif %}
 {% endblock %}
