@@ -81,6 +81,15 @@ def resolve_database_url(settings: Settings) -> str:
                 resolved = (base_dir / db_path).resolve()
                 return f"sqlite:///{resolved.as_posix()}"
         return url
+    if url.startswith("postgresql://"):
+        try:
+            import psycopg2  # type: ignore
+        except ImportError:
+            try:
+                import psycopg  # type: ignore
+                return url.replace("postgresql://", "postgresql+psycopg://", 1)
+            except ImportError:
+                pass
     return url
 
 

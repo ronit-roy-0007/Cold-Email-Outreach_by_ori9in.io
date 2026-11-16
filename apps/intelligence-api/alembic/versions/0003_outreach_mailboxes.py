@@ -1,6 +1,6 @@
 """add outreach compliance and mailbox rotation tables and indexes
 
-Revision ID: 0003_outreach_compliance_and_mailboxes
+Revision ID: 0003_outreach_mailboxes
 Revises: 0002_approvals
 Create Date: 2026-11-16
 
@@ -10,7 +10,7 @@ from typing import Sequence, Union
 from alembic import op
 import sqlalchemy as sa
 
-revision: str = "0003_outreach_compliance_and_mailboxes"
+revision: str = "0003_outreach_mailboxes"
 down_revision: Union[str, None] = "0002_approvals"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
