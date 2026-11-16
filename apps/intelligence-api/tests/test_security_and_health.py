@@ -65,6 +65,20 @@ def test_api_key_auth_enforcement(db_session, auth_required_settings):
         )
         assert res_good_bearer.status_code == 200
 
+        # 5. Sensitive outreach dispatch endpoint blocked without auth -> 401
+        res_dispatch_no_auth = test_client.post(
+            "/api/outreach/dispatch",
+            json={"campaign_id": "00000000-0000-0000-0000-000000000000"}
+        )
+        assert res_dispatch_no_auth.status_code == 401
+
+        # 6. Suppression endpoints blocked without auth -> 401
+        res_suppression_no_auth = test_client.get("/api/outreach/suppression")
+        assert res_suppression_no_auth.status_code == 401
+
+        res_stats_no_auth = test_client.get("/api/outreach/stats")
+        assert res_stats_no_auth.status_code == 401
+
     app.dependency_overrides.clear()
 
 

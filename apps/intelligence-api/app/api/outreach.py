@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.config import Settings, get_settings
 from app.db import get_session
 from app.models import OutboundMessage, SuppressionEntry
+from app.security import check_rate_limit, verify_api_key
 from app.services.email_compliance import verify_unsubscribe_token
 from app.services.email_dispatcher import dispatch_approved_campaign_leads
 from app.services.email_gate import add_to_suppression_list, is_suppressed
@@ -31,11 +32,12 @@ class SuppressionCreateRequest(BaseModel):
     reason: str = "manual"
 
 
-@router.post("/dispatch")
+@router.post("/dispatch", dependencies=[Depends(check_rate_limit)])
 def dispatch_endpoint(
     req: DispatchRequest,
     db: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
+    _: str = Depends(verify_api_key),
 ) -> dict[str, Any]:
     return dispatch_approved_campaign_leads(
         db=db,
@@ -47,9 +49,10 @@ def dispatch_endpoint(
     )
 
 
-@router.get("/stats")
+@router.get("/stats", dependencies=[Depends(check_rate_limit)])
 def outreach_stats_endpoint(
     db: Session = Depends(get_session),
+    _: str = Depends(verify_api_key),
 ) -> dict[str, Any]:
     counts = (
         db.query(OutboundMessage.status, func.count(OutboundMessage.id))
@@ -66,9 +69,10 @@ def outreach_stats_endpoint(
     }
 
 
-@router.get("/suppression")
+@router.get("/suppression", dependencies=[Depends(check_rate_limit)])
 def list_suppression_endpoint(
     db: Session = Depends(get_session),
+    _: str = Depends(verify_api_key),
 ) -> list[dict[str, Any]]:
     entries = db.query(SuppressionEntry).order_by(SuppressionEntry.created_at.desc()).limit(100).all()
     return [
@@ -82,10 +86,11 @@ def list_suppression_endpoint(
     ]
 
 
-@router.post("/suppression")
+@router.post("/suppression", dependencies=[Depends(check_rate_limit)])
 def add_suppression_endpoint(
     req: SuppressionCreateRequest,
     db: Session = Depends(get_session),
+    _: str = Depends(verify_api_key),
 ) -> dict[str, Any]:
     entry = add_to_suppression_list(db, req.email, reason=req.reason)
     db.commit()
@@ -126,7 +131,7 @@ class EmailEventWebhookRequest(BaseModel):
     details: str | None = None
 
 
-@router.post("/webhook/event")
+@router.post("/webhook/event", dependencies=[Depends(check_rate_limit)])
 def email_event_webhook_endpoint(
     req: EmailEventWebhookRequest,
     db: Session = Depends(get_session),
