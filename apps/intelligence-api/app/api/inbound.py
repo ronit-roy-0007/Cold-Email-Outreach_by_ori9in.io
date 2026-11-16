@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
 from app.db import get_session
+from app.security import check_rate_limit
 from app.services.inbound_service import process_inbound_email
 from app.services.webhook_security import (
     DistributedReplayUnavailableError,
@@ -78,7 +79,7 @@ def simulate_inbound_reply(
     return result
 
 
-@router.post("/webhook")
+@router.post("/webhook", dependencies=[Depends(check_rate_limit)])
 async def inbound_email_webhook(
     request: Request,
     db: Session = Depends(get_session),
@@ -89,6 +90,27 @@ async def inbound_email_webhook(
     (SendGrid Inbound Parse, Resend, Mailgun, Postmark, or generic JSON webhooks).
     Enforces cryptographic signature verification, replay protection, and RFC 2822 header extraction.
     """
+    # 0. Production Security Policy: HTTPS Enforcement & Payload Size Limits
+    if settings.APP_ENV == "production":
+        scheme = request.headers.get("x-forwarded-proto", request.url.scheme).lower()
+        if scheme != "https":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="HTTPS is mandatory for webhook ingestion in production environments.",
+            )
+
+    MAX_INBOUND_PAYLOAD_BYTES = 26_214_400  # 25 MB
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            if int(content_length) > MAX_INBOUND_PAYLOAD_BYTES:
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail=f"Inbound payload exceeds maximum size limit ({MAX_INBOUND_PAYLOAD_BYTES} bytes).",
+                )
+        except ValueError:
+            pass
+
     content_type = request.headers.get("content-type", "")
     raw_body = await request.body()
 
@@ -215,11 +237,28 @@ async def inbound_email_webhook(
             if m_ref:
                 references = m_ref.group(1).strip()
 
-    # 3. Cryptographic Signature Verification (Fail-Closed in Production)
+    # 3. Cryptographic Signature & Shared Secret Verification (Fail-Closed in Production)
     has_svix_headers = "svix-id" in request.headers and "svix-signature" in request.headers
     has_mailgun_sig = bool(mailgun_token and mailgun_timestamp and mailgun_signature)
     has_hmac_headers = "x-webhook-signature" in request.headers or "x-signature-sha256" in request.headers
-    auth_token = request.query_params.get("token") or request.headers.get("x-webhook-secret")
+
+    # Extract shared secret / token (SendGrid Inbound Parse / Generic webhooks)
+    # Prefer header X-Webhook-Secret or Authorization header over URL query string to prevent log leaks
+    auth_header = request.headers.get("authorization", "")
+    extracted_token = request.headers.get("x-webhook-secret")
+    if not extracted_token and auth_header:
+        if auth_header.lower().startswith("bearer "):
+            extracted_token = auth_header[7:].strip()
+        elif auth_header.lower().startswith("basic "):
+            import base64
+            try:
+                decoded = base64.b64decode(auth_header[6:].strip()).decode("utf-8")
+                extracted_token = decoded.split(":")[-1].strip()
+            except Exception:
+                pass
+    if not extracted_token:
+        # Fallback to query parameter (discouraged in production logs)
+        extracted_token = request.query_params.get("token")
 
     if has_svix_headers:
         secret = settings.RESEND_WEBHOOK_SECRET
@@ -256,14 +295,22 @@ async def inbound_email_webhook(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail=f"Invalid Mailgun webhook signature: {err}",
                 )
-    elif auth_token and settings.OUTREACH_WEBHOOK_SECRET:
-        import hmac
-        if not hmac.compare_digest(auth_token.strip(), settings.OUTREACH_WEBHOOK_SECRET.strip()):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid webhook authentication token.",
-            )
-    elif has_hmac_headers or settings.OUTREACH_WEBHOOK_SECRET:
+    elif extracted_token:
+        secret = settings.OUTREACH_WEBHOOK_SECRET
+        if not secret:
+            if settings.APP_ENV == "production":
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Shared secret verification failed: OUTREACH_WEBHOOK_SECRET is not configured.",
+                )
+        else:
+            import hmac
+            if not hmac.compare_digest(extracted_token.strip(), secret.strip()):
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid webhook shared secret authentication credentials.",
+                )
+    elif has_hmac_headers:
         secret = settings.OUTREACH_WEBHOOK_SECRET
         if not secret:
             if settings.APP_ENV == "production":
@@ -280,10 +327,10 @@ async def inbound_email_webhook(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail=f"Invalid webhook HMAC signature: {err}",
                 )
-    elif settings.APP_ENV == "production":
+    elif settings.OUTREACH_WEBHOOK_SECRET or settings.APP_ENV == "production":
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Production webhook security policy requires cryptographic signature headers.",
+            detail="Missing or unauthenticated webhook credentials. Signature headers or shared secret required.",
         )
 
     # 4. Distributed Replay Protection & Deduplication

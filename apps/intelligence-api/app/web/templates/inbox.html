@@ -493,7 +493,14 @@
     
     const websiteEl = document.getElementById('dossier-biz-website');
     if (biz && biz.website) {
-      websiteEl.innerHTML = `<a href="${biz.website}" target="_blank" style="color: var(--accent-blue); text-decoration: underline;">${escapeHtml(biz.website)}</a>`;
+      const rawUrl = biz.website.trim();
+      const lowerUrl = rawUrl.toLowerCase();
+      if (!lowerUrl.startsWith('javascript:') && !lowerUrl.startsWith('data:') && !lowerUrl.startsWith('vbscript:')) {
+        const safeUrl = (lowerUrl.startsWith('http://') || lowerUrl.startsWith('https://')) ? rawUrl : `https://${rawUrl}`;
+        websiteEl.innerHTML = `<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener noreferrer" style="color: var(--accent-blue); text-decoration: underline;">${escapeHtml(rawUrl)} ↗</a>`;
+      } else {
+        websiteEl.innerText = rawUrl;
+      }
     } else {
       websiteEl.innerText = 'None';
     }

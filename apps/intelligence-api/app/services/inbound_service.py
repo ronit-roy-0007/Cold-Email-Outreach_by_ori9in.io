@@ -34,15 +34,32 @@ logger = logging.getLogger("inbound_service")
 def sanitize_email_text(raw_text: str | None) -> str:
     """
     Sanitizes untrusted inbound email body text.
-    Strips raw HTML script tags, unescapes entities, and protects against XSS injection.
+    Protects against XSS, script injection, dangerous URI schemes, event handlers,
+    and HTML entity smuggling. Guarantees output is safe text.
     """
     if not raw_text:
         return ""
-    clean = re.sub(r"(?is)<script[^>]*>.*?</script>", "", raw_text)
-    clean = re.sub(r"(?is)<style[^>]*>.*?</style>", "", clean)
-    clean = re.sub(r"<[^>]+>", " ", clean)
-    clean = html.unescape(clean)
-    return clean.strip()
+
+    # 1. Unescape HTML entities first so obfuscated tags cannot bypass regex
+    text = html.unescape(raw_text)
+
+    # 2. Strip active script, style, iframe, object, embed, svg, and math tags and their contents
+    text = re.sub(r"(?is)<(script|style|iframe|object|embed|applet|svg|math)[^>]*>.*?</\1>", "", text)
+    text = re.sub(r"(?is)<(script|style|iframe|object|embed|applet|svg|math)[^>]*\/?>", "", text)
+
+    # 3. Strip event handlers (onload=, onerror=, onclick=, onmouseover=, etc.)
+    text = re.sub(r"(?i)\bon\w+\s*=\s*(?:'[^']*'|\"[^\"]*\"|[^\s>]+)", "", text)
+
+    # 4. Neutralize dangerous URL schemes: javascript:, data:, vbscript:
+    text = re.sub(r"(?i)\b(javascript|vbscript|data):", "[blocked-scheme]:", text)
+
+    # 5. Strip all remaining HTML tags
+    text = re.sub(r"<[^>]+>", " ", text)
+
+    # 6. Normalize whitespace
+    text = re.sub(r"\s+", " ", text)
+
+    return text.strip()
 
 
 def resolve_conversation_for_inbound(

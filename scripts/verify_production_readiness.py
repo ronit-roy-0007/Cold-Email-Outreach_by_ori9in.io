@@ -527,7 +527,7 @@ class TestProductionReadiness(unittest.TestCase):
         self.assertNotIn("<script>", clean_text)
         self.assertNotIn("alert", clean_text)
         self.assertNotIn("<style>", clean_text)
-        self.assertEqual(clean_text, "Hello  World")
+        self.assertEqual(clean_text, "Hello World")
         print("  ✓ XSS protection verified: scripts and styles stripped from inbound body")
 
         # 3. Gate 0 Human Approval Enforcement
