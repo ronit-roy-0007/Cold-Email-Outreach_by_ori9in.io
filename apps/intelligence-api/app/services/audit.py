@@ -39,38 +39,43 @@ def _get_fixtures_dir() -> Path:
     return candidates[0]
 
 
-def fixture_fetcher(url: str) -> FetchResult:
-    parsed = urllib.parse.urlparse(url)
-    if "unreachable" in parsed.path:
-        return FetchResult(status=0, final_url=url, error="website_unreachable")
+def make_fixture_fetcher(scenario: str = "brochure") -> Any:
+    def _fetcher(url: str) -> FetchResult:
+        parsed = urllib.parse.urlparse(url)
+        fixtures_dir = _get_fixtures_dir()
 
-    fixtures_dir = _get_fixtures_dir()
+        if parsed.path == "/robots.txt":
+            robots_file = fixtures_dir / "robots.txt"
+            if robots_file.is_file():
+                return FetchResult(
+                    status=200,
+                    headers={"content-type": "text/plain"},
+                    body_bytes=robots_file.read_bytes(),
+                    final_url=url,
+                )
+            return FetchResult(status=404, final_url=url)
 
-    if parsed.path == "/robots.txt":
-        robots_file = fixtures_dir / "robots.txt"
-        if robots_file.is_file():
+        slug = parsed.path.strip("/")
+        if not slug or slug not in ("explicit_intent", "listing_form", "widgets", "whatsapp", "brochure", "unreachable"):
+            slug = scenario
+
+        if slug == "unreachable" or "unreachable" in parsed.path:
+            return FetchResult(status=0, final_url=url, error="website_unreachable")
+
+        target_file = fixtures_dir / f"{slug}.html"
+        if target_file.is_file():
             return FetchResult(
                 status=200,
-                headers={"content-type": "text/plain"},
-                body_bytes=robots_file.read_bytes(),
+                headers={"content-type": "text/html; charset=utf-8"},
+                body_bytes=target_file.read_bytes(),
                 final_url=url,
             )
-        return FetchResult(status=404, final_url=url)
 
-    slug = parsed.path.strip("/")
-    if not slug:
-        slug = "brochure"
+        return FetchResult(status=404, final_url=url, error="Not found")
+    return _fetcher
 
-    target_file = fixtures_dir / f"{slug}.html"
-    if target_file.is_file():
-        return FetchResult(
-            status=200,
-            headers={"content-type": "text/html; charset=utf-8"},
-            body_bytes=target_file.read_bytes(),
-            final_url=url,
-        )
 
-    return FetchResult(status=404, final_url=url, error="Not found")
+fixture_fetcher = make_fixture_fetcher("brochure")
 
 
 def production_fetcher(url: str) -> FetchResult:
@@ -86,7 +91,7 @@ def production_fetcher(url: str) -> FetchResult:
 
         try:
             with httpx.Client(
-                timeout=httpx.Timeout(connect=5.0, read=10.0, write=5.0, pool=5.0),
+                timeout=httpx.Timeout(connect=3.0, read=5.0, write=3.0, pool=3.0),
                 follow_redirects=False,
                 headers={"User-Agent": "IntentLeadBot/1.0 (+https://intentlead.agency)"},
             ) as client:
@@ -136,14 +141,17 @@ def audit_business(
         if business.discovery_source == "mock" or "fixtures.intentlead.test" in (
             parsed.hostname or ""
         ):
-            fetcher = fixture_fetcher
+            scenario = "brochure"
+            if isinstance(business.source_fields, dict):
+                scenario = business.source_fields.get("scenario", "brochure")
+            fetcher = make_fixture_fetcher(scenario)
         else:
             fetcher = production_fetcher
 
     now = datetime.now(timezone.utc)
 
     # 1. SSRF check
-    is_fixture_domain = parsed.hostname == "fixtures.intentlead.test"
+    is_fixture_domain = (business.discovery_source == "mock") or (parsed.hostname == "fixtures.intentlead.test")
     resolver = (lambda h: ["93.184.216.34"]) if is_fixture_domain else None
 
     try:
@@ -281,26 +289,44 @@ def audit_business(
             session.flush()
         return [ev]
 
-    # Up to 5 pages crawl
+    # Fast lightweight audit: Homepage-first with optional single contact page fallback
     visited = {url}
     pages = [(url, hp_res.body_bytes.decode("utf-8", errors="replace"))]
     origin = f"{parsed.scheme}://{parsed.netloc}"
 
-    link_pattern = re.compile(r'href=["\']([^"\']+)["\']', re.IGNORECASE)
-    for link in link_pattern.findall(pages[0][1]):
-        if len(visited) >= 5:
-            break
-        joined = urllib.parse.urljoin(url, link)
-        clean_joined = joined.split("#")[0]
-        if clean_joined.startswith(origin) and clean_joined not in visited:
-            visited.add(clean_joined)
-            p_res = fetcher(clean_joined)
-            if p_res.status == 200 and "text/html" in p_res.headers.get("content-type", "text/html").lower():
-                pages.append((clean_joined, p_res.body_bytes.decode("utf-8", errors="replace")))
+    hp_html = pages[0][1]
+    hp_lower = hp_html.lower()
+
+    # If contact form, appointment, or social links are not obvious on homepage, check at most 1 contact page
+    has_obvious_contact = any(k in hp_lower for k in ("<form", "whatsapp", "wa.me", "contact us", "get in touch", "book online", "appointment"))
+    if not has_obvious_contact:
+        link_pattern = re.compile(r'href=["\']([^"\']+)["\']', re.IGNORECASE)
+        for link in link_pattern.findall(hp_html):
+            clean_link = link.strip().lower()
+            if any(term in clean_link for term in ("contact", "get-in-touch", "reach-us")) and not any(ext in clean_link for ext in (".css", ".js", ".png", ".jpg", ".jpeg", ".pdf", ".xml", ".svg")):
+                joined = urllib.parse.urljoin(url, link).split("#")[0]
+                if joined.startswith(origin) and joined not in visited:
+                    visited.add(joined)
+                    p_res = fetcher(joined)
+                    if p_res.status == 200 and "text/html" in p_res.headers.get("content-type", "text/html").lower():
+                        pages.append((joined, p_res.body_bytes.decode("utf-8", errors="replace")))
+                    break
 
     evidence_list: list[Evidence] = []
     all_pages_html = " ".join(p[1] for p in pages)
     all_pages_lower = all_pages_html.lower()
+
+    # Fallback email extraction if not present from Google Maps
+    if not getattr(business, "email", None) or not str(business.email).strip():
+        mailto_match = re.search(r'mailto:([a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)', all_pages_html, re.IGNORECASE)
+        if mailto_match:
+            business.email = mailto_match.group(1).strip()
+        else:
+            email_match = re.search(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', all_pages_html)
+            if email_match:
+                candidate = email_match.group(0).strip()
+                if not any(candidate.lower().endswith(ext) for ext in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".js", ".css")):
+                    business.email = candidate
 
     # Viewport
     has_viewport = any(
@@ -476,6 +502,24 @@ def audit_business(
                 supporting_excerpt=intent_match.group(0),
             )
         )
+
+    # Discover social media handles from audited pages
+    social_patterns = {
+        "linkedin": r'https?://(?:www\.)?linkedin\.com/(?:company|in)/[a-zA-Z0-9_\-]+',
+        "facebook": r'https?://(?:www\.)?facebook\.com/[a-zA-Z0-9_\.\-]+',
+        "instagram": r'https?://(?:www\.)?instagram\.com/[a-zA-Z0-9_\.\-]+',
+        "twitter": r'https?://(?:www\.)?(?:twitter|x)\.com/[a-zA-Z0-9_\-]+',
+        "reddit": r'https?://(?:www\.)?reddit\.com/(?:r|user)/[a-zA-Z0-9_\-]+',
+        "telegram": r'https?://(?:www\.)?t\.me/[a-zA-Z0-9_\+]+',
+    }
+    if isinstance(business.source_fields, dict):
+        sf_socials = business.source_fields.setdefault("social_links", {})
+        for platform, pattern in social_patterns.items():
+            if not sf_socials.get(platform):
+                m = re.search(pattern, all_pages_html, re.IGNORECASE)
+                if m:
+                    sf_socials[platform] = m.group(0)
+                    business.source_fields[platform] = m.group(0)
 
     if session:
         for ev in evidence_list:

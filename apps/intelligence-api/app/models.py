@@ -41,6 +41,13 @@ class Campaign(Base):
     provider: Mapped[str] = mapped_column(String, nullable=False)
     dry_run: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     status: Mapped[str] = mapped_column(String, nullable=False)
+    target_sent_emails: Mapped[int] = mapped_column(Integer, nullable=False, default=50)
+    total_sent_emails: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    sub_campaign_index: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    is_auto_mode: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_exhausted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    radius_expanded: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    expanded_locations: Mapped[Any | None] = mapped_column(JSON, nullable=True, default=list)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utc_now
     )
@@ -238,3 +245,111 @@ class Approval(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utc_now
     )
+
+
+class OperatorProfile(Base):
+    __tablename__ = "operator_profiles"
+
+    user_id: Mapped[str] = mapped_column(String, primary_key=True)
+    sender_name: Mapped[str] = mapped_column(String, nullable=False)
+    agency_name: Mapped[str] = mapped_column(String, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utc_now
+    )
+
+
+class OutboundMessage(Base):
+    __tablename__ = "outbound_messages"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    lead_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("leads.id"), nullable=True
+    )
+    campaign_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("campaigns.id"), nullable=True
+    )
+    recipient_email: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    sender_email: Mapped[str] = mapped_column(String, nullable=False)
+    subject: Mapped[str] = mapped_column(String, nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    provider: Mapped[str] = mapped_column(String, nullable=False)  # smtp, resend, google_workspace
+    status: Mapped[str] = mapped_column(String, nullable=False)  # simulated, sent, bounced, failed, replied
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utc_now
+    )
+    dispatched_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
+class SuppressionEntry(Base):
+    __tablename__ = "suppression_list"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    email: Mapped[str] = mapped_column(String, unique=True, index=True, nullable=False)
+    reason: Mapped[str] = mapped_column(String, nullable=False)  # unsubscribe, hard_bounce, manual, complaint
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utc_now
+    )
+
+
+class DailyDispatchQuota(Base):
+    __tablename__ = "daily_dispatch_quotas"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    sender_mailbox: Mapped[str] = mapped_column(String, index=True, nullable=False)
+    dispatch_date: Mapped[str] = mapped_column(String, index=True, nullable=False)  # YYYY-MM-DD
+    count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
+class MailboxAccount(Base):
+    __tablename__ = "mailbox_accounts"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    email: Mapped[str] = mapped_column(String, unique=True, index=True, nullable=False)
+    password: Mapped[str] = mapped_column(String, nullable=False)  # Google App Password
+    sender_name: Mapped[str] = mapped_column(String, nullable=False, default="Roy")
+    daily_limit: Mapped[int] = mapped_column(Integer, nullable=False, default=50)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utc_now
+    )
+
+
+class CampaignLeftoverLead(Base):
+    __tablename__ = "campaign_leftover_leads"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    campaign_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("campaigns.id"), nullable=False
+    )
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("businesses.id"), nullable=False
+    )
+    lead_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("leads.id"), nullable=False
+    )
+    niche: Mapped[str] = mapped_column(String, nullable=False)
+    location: Mapped[str] = mapped_column(String, nullable=False)
+    overall_score: Mapped[int] = mapped_column(Integer, nullable=False)
+    is_consumed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    consumed_by_campaign_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("campaigns.id"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utc_now
+    )
+
+
+

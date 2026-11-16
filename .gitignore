@@ -1,24 +1,46 @@
+# Environment & Secrets (NEVER COMMIT)
 .env
 .env.*
 !.env.example
+mailboxes.json
+**/mailboxes.json
+!mailboxes.example.json
+secrets/
+credentials/
+
+# Python Virtual Environments & Caches
 .venv/
 venv/
+ENV/
+env/
 __pycache__/
 *.py[cod]
-node_modules/
-dist/
-build/
+.pytest_cache/
+
+# Databases
+*.sqlite
+*.sqlite3
+*.db
+data/
+
+# Logs & Temporary Data
+*.log
+outputs/
+downloads/
+webdata/
+*.csv
+scratch/
+
+# IDE & OS Metadata
 .idea/
 .vscode/
 .DS_Store
 Thumbs.db
-*.log
-data/
-outputs/
-secrets/
-credentials/
-*.sqlite3
-*.db
-.pytest_cache/
-google-maps-scraper/
 
+# Build Artifacts
+node_modules/
+dist/
+build/
+
+# External Scraper Binaries
+google-maps-scraper/

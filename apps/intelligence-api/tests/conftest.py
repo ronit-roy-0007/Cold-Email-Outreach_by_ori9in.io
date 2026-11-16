@@ -5,13 +5,40 @@ os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 os.environ["AGENCY_NAME"] = ""
 os.environ["AGENCY_SENDER_NAME"] = ""
 os.environ["DISCOVERY_PROVIDER"] = "mock"
+os.environ["OUTREACH_DRY_RUN"] = "true"
 
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
+from starlette.testclient import TestClient
 
+from app.config import Settings, get_settings
+from app.db import get_session
+from app.main import app
 from app.models import Base
+
+
+@pytest.fixture
+def auth_settings():
+    return Settings(
+        APP_ENV="development",
+        DATABASE_URL="sqlite:///:memory:",
+        DISCOVERY_PROVIDER="mock",
+        AGENCY_NAME="River Agency",
+        AGENCY_SENDER_NAME="Jordan Reed",
+        TELEGRAM_ALLOWED_USER_ID="123456789",
+        OUTREACH_DRY_RUN=True,
+    )
+
+
+@pytest.fixture
+def client(db_session, auth_settings):
+    app.dependency_overrides[get_session] = lambda: db_session
+    app.dependency_overrides[get_settings] = lambda: auth_settings
+    with TestClient(app) as test_client:
+        yield test_client
+    app.dependency_overrides.clear()
 
 
 @pytest.fixture

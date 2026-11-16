@@ -20,7 +20,7 @@
     {
       "parameters": {
         "method": "GET",
-        "url": "=http://localhost:8000/api/leads/" + $json.body.lead_id,
+        "url": "={{ 'http://localhost:8000/api/leads/' + $json.body.lead_id }}",
         "options": {}
       },
       "id": "http-fetch-lead-details",

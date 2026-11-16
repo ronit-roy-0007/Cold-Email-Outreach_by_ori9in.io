@@ -56,6 +56,17 @@ def score_lead(
 
     website = _get_attr(listing_facts, "website")
     category = _get_attr(listing_facts, "category") or ""
+    biz_name = _get_attr(listing_facts, "name") or _get_attr(listing_facts, "title") or ""
+    if not category:
+        name_lower = str(biz_name).lower()
+        if any(w in name_lower for w in ("realt", "propert", "estate", "broker", "developer", "flat", "floor", "homes", "housing")):
+            category = "Real estate agency"
+        elif target_services and any("real_estate" in s for s in target_services):
+            category = "Real estate agency"
+        elif target_services and any("dental" in s for s in target_services):
+            category = "Dental clinic"
+        elif target_services and any("legal" in s for s in target_services):
+            category = "Legal services"
     listing_status = _get_attr(listing_facts, "listing_status") or "open"
     phone = _get_attr(listing_facts, "phone")
     email = _get_attr(listing_facts, "email")
@@ -113,7 +124,7 @@ def score_lead(
             w_reason = reasons.THIN_UNRESPONSIVE_SITE
             w_ev_ids = _ev_ids(no_viewport_ev, missing_search_ev)
         elif missing_search_ev and "real estate" in category.lower():
-            w_points = 12
+            w_points = 16
             w_reason = reasons.MISSING_LISTING_SEARCH
             w_ev_ids = _ev_ids(missing_search_ev)
         elif has_search_ev:
@@ -160,9 +171,15 @@ def score_lead(
             lc_reason = reasons.CONTACT_ONLY
             lc_ev_ids = _ev_ids(has_whatsapp_ev)
         elif has_form_ev or has_booking_ev:
-            lc_points = 4
-            lc_reason = reasons.WORKING_CAPTURE
-            lc_ev_ids = _ev_ids(has_form_ev, has_booking_ev)
+            if has_form_ev and not has_booking_ev and not has_chatbot_ev:
+                # Basic static web form without instant booking or AI chat automation
+                lc_points = 14
+                lc_reason = reasons.WORKING_CAPTURE
+                lc_ev_ids = _ev_ids(has_form_ev)
+            else:
+                lc_points = 4
+                lc_reason = reasons.WORKING_CAPTURE
+                lc_ev_ids = _ev_ids(has_form_ev, has_booking_ev)
         else:
             lc_points = 0
             lc_reason = reasons.UNKNOWN_NOT_INSPECTED
@@ -225,11 +242,11 @@ def score_lead(
             auto_ev_ids = _ev_ids(unreachable_ev)
     else:
         if not has_chatbot_ev and not has_booking_ev:
-            auto_points = 8
+            auto_points = 18
             auto_reason = reasons.NO_VISIBLE_CHAT_OR_BOOKING
             auto_ev_ids = _ev_ids(no_chat_booking_ev)
         elif bool(has_chatbot_ev) ^ bool(has_booking_ev):
-            auto_points = 2
+            auto_points = 8
             auto_reason = reasons.PARTIAL_AUTOMATION_VISIBLE
             auto_ev_ids = _ev_ids(has_chatbot_ev or has_booking_ev)
         elif has_chatbot_ev and has_booking_ev:
@@ -270,66 +287,6 @@ def score_lead(
         evidence_ids=[],
         reason_code=bs_reason,
     )
-
-    # 5. buying_intent_evidence (max 15)
-    bi_points = 0
-    bi_reason = reasons.NO_EXPLICIT_INTENT
-    bi_ev_ids: list[str] = []
-    if explicit_intent_ev and explicit_intent_ev.source_url:
-        bi_points = 15
-        bi_reason = reasons.EXPLICIT_INTENT_PRESENT
-        bi_ev_ids = _ev_ids(explicit_intent_ev)
-
-    dim_buying_intent = DimensionScoreResult(
-        dimension="buying_intent_evidence",
-        points=bi_points,
-        max_points=15,
-        evidence_ids=bi_ev_ids,
-        reason_code=bi_reason,
-    )
-
-    # 6. contactability (max 5)
-    c_points = 0
-    c_reason = reasons.NO_PUBLIC_CONTACT
-    if email:
-        c_points = 5
-        c_reason = reasons.PUBLIC_EMAIL
-    elif phone:
-        c_points = 4
-        c_reason = reasons.PUBLIC_PHONE
-    elif has_form_ev or has_whatsapp_ev:
-        c_points = 3
-        c_reason = reasons.WEBSITE_CONTACT_PATH
-    else:
-        c_points = 0
-        c_reason = reasons.NO_PUBLIC_CONTACT
-
-    dim_contact = DimensionScoreResult(
-        dimension="contactability",
-        points=c_points,
-        max_points=5,
-        evidence_ids=[],
-        reason_code=c_reason,
-    )
-
-    dimensions = [
-        dim_website,
-        dim_lead_capture,
-        dim_auto,
-        dim_suitability,
-        dim_buying_intent,
-        dim_contact,
-    ]
-
-    overall_score = sum(d.points for d in dimensions)
-    if overall_score >= 80:
-        priority = "A"
-    elif overall_score >= 65:
-        priority = "B"
-    elif overall_score >= 45:
-        priority = "C"
-    else:
-        priority = "D"
 
     # Confidence calculation
     verified_obs = [
@@ -522,6 +479,76 @@ def score_lead(
         if s_obj and s_obj.points > best_points:
             best_points = s_obj.points
             best_service = s_name
+
+    # 5. buying_intent_evidence (max 15)
+    bi_points = 0
+    bi_reason = reasons.NO_EXPLICIT_INTENT
+    bi_ev_ids: list[str] = []
+    if explicit_intent_ev and explicit_intent_ev.source_url:
+        bi_points = 15
+        bi_reason = reasons.EXPLICIT_INTENT_PRESENT
+        bi_ev_ids = _ev_ids(explicit_intent_ev)
+    elif site_inspected and best_service and best_points >= 40:
+        # High service-need intent: verified gaps matching user's selected services!
+        bi_points = 15
+        bi_reason = reasons.SERVICE_GAP_IDENTIFIED
+        matched_s = service_map.get(best_service)
+        if matched_s:
+            bi_ev_ids = list(matched_s.evidence_ids)
+    elif site_inspected and any(s.points >= 50 for s in service_scores):
+        bi_points = 10
+        bi_reason = reasons.SERVICE_GAP_IDENTIFIED
+
+    dim_buying_intent = DimensionScoreResult(
+        dimension="buying_intent_evidence",
+        points=bi_points,
+        max_points=15,
+        evidence_ids=bi_ev_ids,
+        reason_code=bi_reason,
+    )
+
+    # 6. contactability (max 5)
+    c_points = 0
+    c_reason = reasons.NO_PUBLIC_CONTACT
+    if email:
+        c_points = 5
+        c_reason = reasons.PUBLIC_EMAIL
+    elif phone:
+        c_points = 4
+        c_reason = reasons.PUBLIC_PHONE
+    elif has_form_ev or has_whatsapp_ev:
+        c_points = 3
+        c_reason = reasons.WEBSITE_CONTACT_PATH
+    else:
+        c_points = 0
+        c_reason = reasons.NO_PUBLIC_CONTACT
+
+    dim_contact = DimensionScoreResult(
+        dimension="contactability",
+        points=c_points,
+        max_points=5,
+        evidence_ids=[],
+        reason_code=c_reason,
+    )
+
+    dimensions = [
+        dim_website,
+        dim_lead_capture,
+        dim_auto,
+        dim_suitability,
+        dim_buying_intent,
+        dim_contact,
+    ]
+
+    overall_score = sum(d.points for d in dimensions)
+    if overall_score >= 80:
+        priority = "A"
+    elif overall_score >= 65:
+        priority = "B"
+    elif overall_score >= 45:
+        priority = "C"
+    else:
+        priority = "D"
 
     return ScoreResult(
         overall_score=overall_score,

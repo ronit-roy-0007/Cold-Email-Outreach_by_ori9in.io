@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+import csv
 from dataclasses import dataclass, field
+import io
+import logging
 from typing import Any
 import httpx
 
+from app.providers.geocoder import geocode_location
 from app.providers.mock_scraper import create_mock_job, get_mock_job
 from app.providers.types import NormalizedListing
+
+logger = logging.getLogger(__name__)
 
 
 class ScraperError(Exception):
@@ -24,10 +30,16 @@ def map_gosom_listing(raw: dict[str, Any], discovery_source: str) -> NormalizedL
     place_id = raw.get("placeId") or raw.get("place_id") or raw.get("data_id") or raw.get("cid") or raw.get("link")
     name = raw.get("title") or raw.get("name") or ""
     category = raw.get("category")
+    if not category and isinstance(raw.get("categories"), list) and raw["categories"]:
+        category = str(raw["categories"][0])
+    if not category:
+        name_lower = (name or "").lower()
+        if any(w in name_lower for w in ("realt", "propert", "estate", "broker", "developer", "flat", "floor", "homes", "housing")):
+            category = "Real estate agency"
     address = raw.get("address") or raw.get("complete_address")
     locality = raw.get("locality") or raw.get("city")
 
-    website = raw.get("website") or raw.get("WebSite")
+    website = raw.get("website") or raw.get("WebSite") or raw.get("web_site")
     if website is not None:
         website_str = str(website).strip()
         website = website_str if website_str else None
@@ -164,33 +176,85 @@ class ScraperClient:
             if not self.base_url:
                 raise ScraperError("GOOGLE_MAPS_SCRAPER_BASE_URL missing")
             clean_base = self.base_url.rstrip("/")
-            endpoint = f"{clean_base}/jobs"
-            kw = f"{query} in {location}".strip() if location else query
+            endpoint = f"{clean_base}/api/v1/jobs"
+
+            clean_loc = (location or "").strip()
+            loc_lower = clean_loc.lower()
+            if loc_lower in ("nationwide", "usa", "us", "all us", "united states"):
+                resolved_loc = "New York, NY"
+            elif loc_lower in ("india", "pan india", "all india"):
+                resolved_loc = "Delhi"
+            elif loc_lower in ("uk", "all uk", "united kingdom"):
+                resolved_loc = "London"
+            elif loc_lower in ("texas", "tx"):
+                resolved_loc = "Dallas, TX"
+            elif loc_lower in ("california", "ca"):
+                resolved_loc = "Los Angeles, CA"
+            elif loc_lower in ("florida", "fl"):
+                resolved_loc = "Miami, FL"
+            elif loc_lower in ("new york state", "ny state"):
+                resolved_loc = "New York, NY"
+            elif loc_lower in ("illinois", "il"):
+                resolved_loc = "Chicago, IL"
+            elif loc_lower in ("washington", "wa"):
+                resolved_loc = "Seattle, WA"
+            elif loc_lower in ("georgia", "ga"):
+                resolved_loc = "Atlanta, GA"
+            elif loc_lower in ("ontario", "on"):
+                resolved_loc = "Toronto, ON"
+            elif loc_lower in ("australia", "all australia"):
+                resolved_loc = "Sydney"
+            else:
+                resolved_loc = clean_loc
+
+            attempt_idx = int(filters.get("attempt", 1)) if (filters and isinstance(filters, dict)) else 1
+            if attempt_idx == 2:
+                kw = f"best {query} in {resolved_loc}".strip() if resolved_loc else query
+            elif attempt_idx == 3:
+                kw = f"top {query} in {resolved_loc}".strip() if resolved_loc else query
+            elif attempt_idx == 4:
+                kw = f"{query} near {resolved_loc}".strip() if resolved_loc else query
+            elif attempt_idx >= 5:
+                kw = f"{query} services in {resolved_loc}".strip() if resolved_loc else query
+            else:
+                kw = f"{query} in {resolved_loc}".strip() if resolved_loc else query
+
+            lat, lon = geocode_location(resolved_loc or query)
+
+            if filters and isinstance(filters, dict) and "depth" in filters:
+                try:
+                    depth_val = max(2, min(int(filters["depth"]), 15))
+                except (ValueError, TypeError):
+                    depth_val = max(2, min(limit // 5, 10)) if limit else 3
+            elif limit:
+                depth_val = max(2, min(limit // 5, 10))
+            else:
+                depth_val = 3
+
             payload = {
-                "name": f"{query} - {location}".strip(" -") or "Search",
+                "name": f"{query} - {resolved_loc}".strip(" -") or "Search",
                 "keywords": [kw],
                 "lang": "en",
-                "depth": max(1, min(limit // 10, 10)) if limit else 5,
-                "max_time": 300,
+                "depth": depth_val,
+                "max_time": 60,
                 "email": True,
-                "fast_mode": False,
-                "query": query,
-                "location": location,
-                "limit": limit,
-                "filters": filters or {},
+                "fast_mode": True,
+                "lat": str(lat),
+                "lon": str(lon),
+                "zoom": 14,
             }
             try:
                 resp = self._request_with_retry("POST", endpoint, json=payload)
             except ScraperError as exc:
-                if "/api/v1" not in endpoint and ("404" in str(exc) or "not found" in str(exc).lower()):
-                    endpoint = f"{clean_base}/api/v1/jobs"
-                    resp = self._request_with_retry("POST", endpoint, json=payload)
+                if "/api/v1" in endpoint and ("404" in str(exc) or "not found" in str(exc).lower()):
+                    resp = self._request_with_retry("POST", f"{clean_base}/jobs", json=payload)
                 else:
                     raise
+
             data = resp.json()
-            job_id = data.get("job_id") or data.get("id") or data.get("ID")
+            job_id = data.get("id") or data.get("ID") or data.get("job_id")
             if not job_id:
-                raise ScraperError("Missing job_id in scraper response")
+                raise ScraperError(f"Missing job_id in scraper response: {data}")
             return str(job_id)
 
         raise ScraperError(f"Unsupported discovery provider: {self.provider}")
@@ -212,15 +276,15 @@ class ScraperClient:
             if not self.base_url:
                 raise ScraperError("GOOGLE_MAPS_SCRAPER_BASE_URL missing")
             clean_base = self.base_url.rstrip("/")
-            endpoint = f"{clean_base}/jobs/{job_id}"
+            endpoint = f"{clean_base}/api/v1/jobs/{job_id}"
             try:
                 resp = self._request_with_retry("GET", endpoint)
             except ScraperError as exc:
-                if "/api/v1" not in endpoint and ("404" in str(exc) or "not found" in str(exc).lower()):
-                    endpoint = f"{clean_base}/api/v1/jobs/{job_id}"
-                    resp = self._request_with_retry("GET", endpoint)
+                if "/api/v1" in endpoint and ("404" in str(exc) or "not found" in str(exc).lower()):
+                    resp = self._request_with_retry("GET", f"{clean_base}/jobs/{job_id}")
                 else:
                     raise
+
             data = resp.json()
             raw_status = str(data.get("status") or data.get("Status") or "unknown")
             norm_status = raw_status.lower()
@@ -235,18 +299,16 @@ class ScraperClient:
 
             raw_results = data.get("results") or []
             if status_str == "completed" and not raw_results:
-                dl_endpoint = endpoint.replace(f"/{job_id}", f"/{job_id}/download")
+                dl_endpoint = f"{clean_base}/api/v1/jobs/{job_id}/download"
                 try:
                     dl_resp = self._request_with_retry("GET", dl_endpoint)
                     if dl_resp.status_code == 200 and dl_resp.text.strip():
-                        import csv
-                        import io
                         reader = csv.DictReader(io.StringIO(dl_resp.text))
                         raw_results = list(reader)
                 except Exception:
                     pass
 
-            results = [map_gosom_listing(r, "live") for r in raw_results]
+            results = [map_gosom_listing(r, "google_maps") for r in raw_results]
             return JobResult(
                 status=status_str,
                 results=results,

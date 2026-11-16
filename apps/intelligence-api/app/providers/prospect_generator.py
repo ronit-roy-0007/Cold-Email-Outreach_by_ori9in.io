@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import random
+import re
 from typing import Any
 import uuid
 
@@ -14,8 +15,7 @@ NICHE_PATTERNS: dict[str, dict[str, list[str]]] = {
             "Golden Gate", "Parkview", "Centennial", "Horizon", "Grandview", "Westminster",
             "Crown", "Lakeside", "Ascent", "Meridian", "Riverfront", "Boutique", "First Choice",
             "Urban Living", "Regal", "Latitude", "Compass Point", "Kensington", "Mayfair",
-            "Chelsea", "Dallas Metro", "Lone Star", "Trinity River", "Deep Ellum", "Uptown",
-            "Highland Park", "Lakewood", "Northgate", "Capital", "Providence", "Pinnacle"
+            "Chelsea", "Uptown", "Capital", "Providence", "Pinnacle"
         ],
         "suffixes": [
             "Realty Group", "Properties", "Real Estate Partners", "Estates", "Residential & Commercial",
@@ -103,8 +103,14 @@ DEFAULT_SUFFIXES = [
 def _get_area_code_and_city(location: str) -> tuple[str, str, str]:
     """Returns (phone_prefix, city_name, street_suffix) based on location string."""
     loc_lower = location.lower()
-    if "london" in loc_lower or "uk" in loc_lower or "england" in loc_lower:
-        return ("+44 20 7946", "London", "Street, London EC2")
+    if "delhi" in loc_lower or "noida" in loc_lower or "gurgaon" in loc_lower:
+        return ("+91 98110", "Delhi", "Connaught Place, New Delhi 110001")
+    elif "mumbai" in loc_lower:
+        return ("+91 98200", "Mumbai", "Nariman Point, Mumbai 400021")
+    elif "bangalore" in loc_lower or "bengaluru" in loc_lower:
+        return ("+91 98450", "Bangalore", "MG Road, Bangalore 560001")
+    elif "london" in loc_lower or "uk" in loc_lower or "england" in loc_lower:
+        return ("+44 20 7946", "London", "Baker St, London NW1 6XE")
     elif "dallas" in loc_lower or "tx" in loc_lower or "texas" in loc_lower:
         return ("+1 214-555", "Dallas", "St, Dallas, TX 75201")
     elif "austin" in loc_lower:
@@ -176,19 +182,25 @@ def generate_candidate_businesses(
     businesses: list[dict[str, Any]] = []
     rng = random.Random(42 + seed_offset)
 
+    total_combos = max(1, len(prefixes) * len(suffixes))
+
     for i in range(count):
         idx = seed_offset + i
+        cycle = idx // total_combos
         p = prefixes[idx % len(prefixes)]
         s = suffixes[(idx // len(prefixes) + idx) % len(suffixes)]
-        name = f"{p} {s}"
-        if i >= len(prefixes) * len(suffixes):
-            name = f"{name} #{i + 1}"
+        name = f"{p} {s}" if cycle == 0 else f"{p} {s} {cycle + 1}"
 
         scenario = scenarios_cycle[i % len(scenarios_cycle)]
+        clean_domain = "".join(c for c in f"{p}{s}".lower() if c.isalnum())
+        domain_name = f"{clean_domain[:16]}"
+        if cycle > 0:
+            domain_name = f"{domain_name}{cycle+1}"
+
         if scenario == "no_website":
             website = None
         else:
-            website = f"https://fixtures.intentlead.test/{scenario}?biz={idx+1}"
+            website = f"https://www.{domain_name}.com"
 
         street_num = 100 + (idx * 17) % 8900
         street_name = streets[idx % len(streets)]
@@ -198,8 +210,7 @@ def generate_candidate_businesses(
         rating = round(3.8 + (idx % 12) * 0.1, 1)
         review_count = 15 + (idx * 13) % 250
 
-        clean_domain = p.lower().replace(" ", "").replace("&", "") + s.lower().replace(" ", "").replace("&", "")
-        email = f"contact@{clean_domain[:20]}.com"
+        email = f"contact@{domain_name}.com"
 
         # Provide process friction reviews on explicit_intent and brochure candidates
         # to reflect real operational pain points (slow response, hard to reach, friction)
@@ -214,6 +225,28 @@ def generate_candidate_businesses(
                 f"Professional team at {name}",
             ]
 
+        # Social profile links (LinkedIn, Facebook, Instagram, Twitter, Reddit, Telegram)
+        clean_handle = domain_name
+        clean_digits = re.sub(r"[^\d+]", "", phone_num)
+        if not clean_digits.startswith("+"):
+            clean_digits = f"+{clean_digits}"
+
+        facebook = f"https://facebook.com/{clean_handle}" if (idx % 4 != 0) else ""
+        instagram = f"https://instagram.com/{clean_handle}" if (idx % 3 != 0) else ""
+        linkedin = f"https://linkedin.com/company/{clean_handle}" if (idx % 2 == 0 or idx % 5 == 0) else ""
+        twitter = f"https://x.com/{clean_handle}" if (idx % 3 == 1) else ""
+        reddit = f"https://reddit.com/user/{clean_handle}" if (idx % 4 == 2) else ""
+        telegram = f"https://t.me/{clean_digits}" if (idx % 4 != 3) else ""
+
+        social_links = {
+            "linkedin": linkedin,
+            "facebook": facebook,
+            "instagram": instagram,
+            "twitter": twitter,
+            "reddit": reddit,
+            "telegram": telegram,
+        }
+
         businesses.append({
             "title": name,
             "category": category,
@@ -224,10 +257,28 @@ def generate_candidate_businesses(
             "emails": [email],
             "rating": rating,
             "reviewCount": review_count,
-            "placeId": f"gen-{uuid.uuid5(uuid.NAMESPACE_DNS, f'{name}-{city_name}')}",
+            "placeId": f"gen-{uuid.uuid5(uuid.NAMESPACE_DNS, f'{name}-{city_name}-{idx}')}",
             "reviews": reviews,
             "listingStatus": "open",
             "scenario": scenario,
+            "social_links": social_links,
+            "linkedin": linkedin,
+            "facebook": facebook,
+            "instagram": instagram,
+            "twitter": twitter,
+            "reddit": reddit,
+            "telegram": telegram,
+            "source_fields": {
+                "scenario": scenario,
+                "domain": domain_name,
+                "social_links": social_links,
+                "linkedin": linkedin,
+                "facebook": facebook,
+                "instagram": instagram,
+                "twitter": twitter,
+                "reddit": reddit,
+                "telegram": telegram,
+            },
         })
 
     return businesses

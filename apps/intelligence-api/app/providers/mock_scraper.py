@@ -69,27 +69,26 @@ def create_mock_job(
     fixtures = load_fixture_businesses()
     effective_limit = max(1, limit) if limit is not None else 25
 
+    query_str = (query or "").lower()
+    loc_str = (location or "").lower()
+    is_real_estate = any(w in query_str for w in ("real estate", "realty", "realtor", "property"))
+    is_dallas = any(w in loc_str for w in ("dallas", "texas", "tx"))
+
+    attempt = filters.get("attempt", 1) if (filters and isinstance(filters, dict)) else 1
+    depth = filters.get("depth", 0) if (filters and isinstance(filters, dict)) else 0
     has_score_filter = bool(filters and isinstance(filters, dict) and filters.get("min_score", 0) > 0)
     has_dynamic = bool(filters and isinstance(filters, dict) and filters.get("dynamic", False))
 
-    if effective_limit <= 25 and not has_score_filter and not has_dynamic:
+    if is_real_estate and is_dallas and effective_limit <= 25 and not has_score_filter and not has_dynamic and attempt <= 1:
         results = fixtures[:effective_limit]
     else:
-        results = list(fixtures)
-        needed = effective_limit - len(results)
-        if needed > 0:
-            seed_offset = 0
-            if filters and isinstance(filters, dict):
-                depth = filters.get("depth", 0)
-                attempt = filters.get("attempt", 0)
-                seed_offset = (attempt * 60) + (depth * 15)
-            extra = generate_candidate_businesses(
-                niche=query or "Real Estate",
-                location=location or "Dallas, Texas",
-                count=needed,
-                seed_offset=seed_offset,
-            )
-            results.extend(extra)
+        seed_offset = (attempt - 1) * effective_limit + (depth * 5)
+        results = generate_candidate_businesses(
+            niche=query or "Real Estate",
+            location=location or "Dallas, Texas",
+            count=effective_limit,
+            seed_offset=seed_offset,
+        )
 
     job_id = f"mock-{uuid.uuid4()}"
     _MOCK_JOBS[job_id] = {

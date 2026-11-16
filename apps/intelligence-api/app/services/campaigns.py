@@ -24,7 +24,7 @@ def create_campaign(session: Session, payload: dict[str, Any], settings: Setting
         target_services=parsed.target_services,
         filters=parsed.filters,
         provider=provider,
-        dry_run=True,
+        dry_run=payload.get("dry_run", settings.OUTREACH_DRY_RUN if settings else False),
         status="pending",
     )
     session.add(campaign)

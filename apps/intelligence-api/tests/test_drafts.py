@@ -112,3 +112,35 @@ def test_draft_includes_rating_and_review_count_pitch():
     assert "5-star" in r.body.lower()
     assert "monthly sales" in r.body.lower() or "revenue" in r.body.lower()
 
+
+def test_hook_subject_and_conversational_cta():
+    from app.services.drafts import generate_hook_subject
+
+    # Verify hook question subjects
+    assert generate_hook_subject("Somani Realtors", "real_estate_listing_portal") == "Quick question about Somani Realtors property listings?"
+    assert generate_hook_subject("Apex Dental", "ai_chatbot") == "Quick question about after-hours inquiries at Apex Dental?"
+    assert generate_hook_subject("Prime Law", "crm_appointment_automation") == "Quick question about appointment scheduling for Prime Law?"
+    assert generate_hook_subject("Kolkata Motors", "website_development") == "Quick question about your website, Kolkata Motors?"
+
+    # Verify conversational, non-cold draft body with demo & free call CTA
+    ev = Evidence(
+        claim="No property search found",
+        evidence_type="verified_observation",
+        source_url="https://somanirealtors.in",
+        supporting_excerpt="missing_listing_search",
+    )
+    r = build_draft(
+        agency_name="ori9in.io",
+        sender_name="Roy",
+        business_name="Somani Realtors",
+        recommended_service="real_estate_listing_portal",
+        evidence=[ev],
+        service_scores=[],
+    )
+    assert r.status == "preview"
+    assert r.subject == "Quick question about Somani Realtors property listings?"
+    assert "Should I show you the demo how it works? Then we can talk further if you are interested." in r.body
+    # Ensure it's not long (< 75 words in main pitch)
+    assert len(r.body.split()) < 85
+
+

@@ -12,14 +12,22 @@
     "placeId": "ChIJ-noweb",
     "reviews": ["Responsive agent", "Knew the Oak Lawn market"],
     "listingStatus": "open",
-    "scenario": "no_website"
+    "scenario": "no_website",
+    "social_links": {
+      "linkedin": "https://linkedin.com/company/oaklawnrealty",
+      "facebook": "https://facebook.com/oaklawnrealty",
+      "instagram": "",
+      "twitter": "",
+      "reddit": "",
+      "telegram": "https://t.me/+12145550101"
+    }
   },
   {
     "title": "Deep Ellum Property Group",
     "category": "Real estate agency",
     "address": "2650 Main St, Dallas, TX 75226",
     "locality": "Dallas",
-    "website": "https://fixtures.intentlead.test/unreachable",
+    "website": "https://www.deepellumprops.com",
     "phone": "+1 214-555-0102",
     "emails": [],
     "rating": 4.5,
@@ -27,14 +35,22 @@
     "placeId": "ChIJ-unreach",
     "reviews": ["Hard to reach online"],
     "listingStatus": "open",
-    "scenario": "unreachable"
+    "scenario": "unreachable",
+    "social_links": {
+      "linkedin": "https://linkedin.com/company/deepellumprops",
+      "facebook": "https://facebook.com/deepellumprops",
+      "instagram": "https://instagram.com/deepellumprops",
+      "twitter": "",
+      "reddit": "",
+      "telegram": "https://t.me/+12145550102"
+    }
   },
   {
     "title": "Bishop Arts Homes",
     "category": "Real estate agency",
     "address": "408 W 8th St, Dallas, TX 75208",
     "locality": "Dallas",
-    "website": "https://fixtures.intentlead.test/brochure",
+    "website": "https://www.bishopartshomes.com",
     "phone": "+1 214-555-0103",
     "emails": [],
     "rating": 4.0,
@@ -42,14 +58,22 @@
     "placeId": "ChIJ-brochure",
     "reviews": ["Friendly staff"],
     "listingStatus": "open",
-    "scenario": "brochure"
+    "scenario": "brochure",
+    "social_links": {
+      "linkedin": "",
+      "facebook": "https://facebook.com/bishopartshomes",
+      "instagram": "https://instagram.com/bishopartshomes",
+      "twitter": "https://x.com/bishopartshomes",
+      "reddit": "",
+      "telegram": "https://t.me/+12145550103"
+    }
   },
   {
     "title": "Uptown Listing Partners",
     "category": "Real estate agency",
     "address": "2608 McKinney Ave, Dallas, TX 75204",
     "locality": "Dallas",
-    "website": "https://fixtures.intentlead.test/listing_form",
+    "website": "https://www.uptownlisting.com",
     "phone": "+1 214-555-0104",
     "emails": ["hello@uptownlisting.test"],
     "rating": 4.6,
@@ -57,14 +81,22 @@
     "placeId": "ChIJ-listform",
     "reviews": ["Easy to inquire about listings"],
     "listingStatus": "open",
-    "scenario": "listing_form"
+    "scenario": "listing_form",
+    "social_links": {
+      "linkedin": "https://linkedin.com/company/uptownlisting",
+      "facebook": "https://facebook.com/uptownlisting",
+      "instagram": "https://instagram.com/uptownlisting",
+      "twitter": "https://x.com/uptownlisting",
+      "reddit": "https://reddit.com/user/uptownlisting",
+      "telegram": "https://t.me/+12145550104"
+    }
   },
   {
     "title": "Lakewood Realty Co",
     "category": "Real estate agency",
     "address": "6333 E Mockingbird Ln, Dallas, TX 75214",
     "locality": "Dallas",
-    "website": "https://fixtures.intentlead.test/whatsapp",
+    "website": "https://www.lakewoodrealtyco.com",
     "phone": "+1 214-555-0105",
     "emails": [],
     "rating": 4.3,
@@ -72,14 +104,22 @@
     "placeId": "ChIJ-whatsapp",
     "reviews": ["Quick WhatsApp replies"],
     "listingStatus": "open",
-    "scenario": "whatsapp_only"
+    "scenario": "whatsapp_only",
+    "social_links": {
+      "linkedin": "",
+      "facebook": "https://facebook.com/lakewoodrealtyco",
+      "instagram": "https://instagram.com/lakewoodrealtyco",
+      "twitter": "",
+      "reddit": "",
+      "telegram": "https://t.me/+12145550105"
+    }
   },
   {
     "title": "Preston Hollow Estates",
     "category": "Real estate agency",
     "address": "8411 Preston Rd, Dallas, TX 75225",
     "locality": "Dallas",
-    "website": "https://fixtures.intentlead.test/widgets",
+    "website": "https://www.prestonhollowestates.com",
     "phone": "+1 214-555-0106",
     "emails": ["concierge@prestonhollow.test"],
     "rating": 4.8,
@@ -87,14 +127,22 @@
     "placeId": "ChIJ-widgets",
     "reviews": ["Booking widget was convenient"],
     "listingStatus": "open",
-    "scenario": "widgets"
+    "scenario": "widgets",
+    "social_links": {
+      "linkedin": "https://linkedin.com/company/prestonhollowestates",
+      "facebook": "https://facebook.com/prestonhollowestates",
+      "instagram": "https://instagram.com/prestonhollowestates",
+      "twitter": "https://x.com/prestonhollowestates",
+      "reddit": "",
+      "telegram": "https://t.me/+12145550106"
+    }
   },
   {
     "title": "Fair Park Realty",
     "category": "Real estate agency",
     "address": "3809 Grand Ave, Dallas, TX 75210",
     "locality": "Dallas",
-    "website": "https://fixtures.intentlead.test/brochure",
+    "website": "https://www.fairparkrealty.com",
     "phone": "+1 214-555-0107",
     "emails": [],
     "rating": 2.1,
@@ -102,14 +150,22 @@
     "placeId": "ChIJ-lowrate",
     "reviews": ["Slow to call back", "Listing photos were outdated", "Office closed early", "Would not recommend"],
     "listingStatus": "open",
-    "scenario": "low_rating"
+    "scenario": "low_rating",
+    "social_links": {
+      "linkedin": "",
+      "facebook": "https://facebook.com/fairparkrealty",
+      "instagram": "",
+      "twitter": "",
+      "reddit": "",
+      "telegram": "https://t.me/+12145550107"
+    }
   },
   {
     "title": "Design District Properties",
     "category": "Real estate agency",
     "address": "161 Glass St, Dallas, TX 75207",
     "locality": "Dallas",
-    "website": "https://fixtures.intentlead.test/explicit_intent",
+    "website": "https://www.designdistrictprops.com",
     "phone": "+1 214-555-0108",
     "emails": ["team@designdistrictprops.test"],
     "rating": 4.4,
@@ -117,7 +173,15 @@
     "placeId": "ChIJ-intent",
     "reviews": ["Specializes in loft conversions"],
     "listingStatus": "open",
-    "scenario": "explicit_intent"
+    "scenario": "explicit_intent",
+    "social_links": {
+      "linkedin": "https://linkedin.com/company/designdistrictprops",
+      "facebook": "https://facebook.com/designdistrictprops",
+      "instagram": "https://instagram.com/designdistrictprops",
+      "twitter": "https://x.com/designdistrictprops",
+      "reddit": "https://reddit.com/user/designdistrictprops",
+      "telegram": "https://t.me/+12145550108"
+    }
   },
   {
     "title": "Oak Lawn Realty",
@@ -132,6 +196,14 @@
     "placeId": "ChIJ-noweb",
     "reviews": ["Duplicate payload with a different phone"],
     "listingStatus": "open",
-    "scenario": "no_website_duplicate"
+    "scenario": "no_website_duplicate",
+    "social_links": {
+      "linkedin": "https://linkedin.com/company/oaklawnrealty",
+      "facebook": "https://facebook.com/oaklawnrealty",
+      "instagram": "",
+      "twitter": "",
+      "reddit": "",
+      "telegram": "https://t.me/+12145550199"
+    }
   }
 ]

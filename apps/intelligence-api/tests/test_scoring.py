@@ -213,3 +213,88 @@ def test_low_rating_or_review_count_awards_automation_points():
     assert dim_map["automation_opportunity"].points == 16
     assert dim_map["automation_opportunity"].reason_code == reasons.PUBLIC_PROCESS_FRICTION
 
+
+def test_service_intent_scoring_real_world_candidate():
+    listing = {
+        "title": "Somani Realtors Kolkata",
+        "category": "Real estate agency",
+        "address": "Park Street, Kolkata",
+        "locality": "Kolkata",
+        "website": "https://fixtures.intentlead.test/brochure",
+        "phone": "+91 98300 12345",
+        "email": "info@somanirealtors.in",
+        "listing_status": "open",
+    }
+    evidence = [
+        Evidence(
+            claim="No property search found",
+            evidence_type="verified_observation",
+            source_url=listing["website"],
+            supporting_excerpt="missing_listing_search",
+        ),
+        Evidence(
+            claim="Inquiry form found",
+            evidence_type="verified_observation",
+            source_url=listing["website"],
+            supporting_excerpt="has_form",
+        ),
+        Evidence(
+            claim="No visible chatbot or booking",
+            evidence_type="inference",
+            source_url=listing["website"],
+            supporting_excerpt="no_visible_chat_or_booking",
+        ),
+    ]
+    res = score_lead(listing, evidence, target_services=["real_estate_listing_portal", "ai_chatbot", "crm_appointment_automation"])
+    dim_map = {d.dimension: d for d in res.dimensions}
+
+    assert dim_map["website_opportunity"].points == 16
+    assert dim_map["lead_capture_opportunity"].points == 14
+    assert dim_map["automation_opportunity"].points == 18
+    assert dim_map["business_suitability"].points == 15
+    assert dim_map["buying_intent_evidence"].points == 15
+    assert dim_map["buying_intent_evidence"].reason_code == reasons.SERVICE_GAP_IDENTIFIED
+    assert dim_map["contactability"].points == 5
+
+    # Total score should be 83/100 -> Grade A prime target
+    assert res.overall_score == 83
+    assert res.priority == "A"
+    assert res.recommended_service == "real_estate_listing_portal"
+
+
+def test_already_equipped_enterprise_lead():
+    listing = {
+        "title": "Corporate Real Estate Enterprise",
+        "category": "Real estate agency",
+        "address": "Camac Street, Kolkata",
+        "locality": "Kolkata",
+        "website": "https://fixtures.intentlead.test/widgets",
+        "phone": "+91 98300 99999",
+        "email": "enterprise@corporate.in",
+        "listing_status": "open",
+    }
+    evidence = [
+        Evidence(
+            claim="Property search found",
+            evidence_type="verified_observation",
+            source_url=listing["website"],
+            supporting_excerpt="has_listing_search",
+        ),
+        Evidence(
+            claim="Chatbot visible",
+            evidence_type="verified_observation",
+            source_url=listing["website"],
+            supporting_excerpt="has_chatbot",
+        ),
+        Evidence(
+            claim="Booking visible",
+            evidence_type="verified_observation",
+            source_url=listing["website"],
+            supporting_excerpt="has_booking",
+        ),
+    ]
+    res = score_lead(listing, evidence, target_services=["real_estate_listing_portal", "ai_chatbot", "crm_appointment_automation"])
+    assert res.overall_score == 28
+    assert res.priority == "D"
+
+

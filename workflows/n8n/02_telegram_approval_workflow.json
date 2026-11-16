@@ -72,7 +72,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "=http://localhost:8000/api/orchestrator/approvals/" + $json.callback_query.data.split(':')[1],
+        "url": "={{ 'http://localhost:8000/api/orchestrator/approvals/' + $json.callback_query.data.split(':')[1] }}",
         "sendBody": true,
         "contentType": "json",
         "body": "={\n  \"action\": \"{{ $json.callback_query.data.split(':')[0] }}\",\n  \"user_id\": \"{{ $json.callback_query.from.id }}\"\n}",

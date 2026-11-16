@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     APP_ENV: str = "development"
     LOG_LEVEL: str = "INFO"
     DATABASE_URL: str = "postgresql://intentlead:change-me@localhost:5432/intentlead"
-    DISCOVERY_PROVIDER: str = "mock"
+    DISCOVERY_PROVIDER: str = "live"
     GOOGLE_MAPS_SCRAPER_BASE_URL: str = ""
     GOOGLE_MAPS_SCRAPER_API_TOKEN: str = ""
     AGENCY_NAME: str = ""
@@ -30,10 +30,25 @@ class Settings(BaseSettings):
     OUTREACH_DRY_RUN: bool = True
     USER_LLM_API_KEY: str = ""
     USER_LLM_BASE_URL: str = ""
-    USER_LLM_MODEL: str = ""
+    USER_LLM_MODEL: str = "gemini-3.5-flash"
     TELEGRAM_BOT_TOKEN: str = ""
     TELEGRAM_ALLOWED_USER_ID: str = ""
     N8N_WEBHOOK_URL: str = ""
+    EMAIL_PROVIDER: str = "smtp"
+    SENDER_EMAIL: str = "outreach@ori9in.io"
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_USE_TLS: bool = True
+    RESEND_API_KEY: str = ""
+    GOOGLE_WORKSPACE_CREDENTIALS: str = ""
+    AGENCY_PHYSICAL_ADDRESS: str = "100 Innovation Way, Suite 400, Wilmington, DE 19801"
+    MAX_EMAILS_PER_DAY: int = 50
+    UNSUBSCRIBE_BASE_URL: str = "https://ori9in.io/unsubscribe"
+    UNSUBSCRIBE_SECRET: str = "intentlead-compliance-secret-key"
+    MAILBOXES_FILE: str = "mailboxes.json"
+    ENABLE_DISPATCH_PACING: bool = True
 
 
 def resolve_database_url(settings: Settings) -> str:

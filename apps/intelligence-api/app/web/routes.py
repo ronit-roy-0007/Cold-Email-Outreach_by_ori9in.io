@@ -25,6 +25,7 @@ from app.models import (
 )
 from app.services.campaigns import create_campaign, get_campaign, list_campaigns
 from app.services.pipeline import run_campaign
+from app.services.social import get_business_social_links, get_lead_messages, sanitize_website
 
 templates_dir = Path(__file__).resolve().parent / "templates"
 templates = Jinja2Templates(directory=str(templates_dir))
@@ -123,11 +124,27 @@ def export_campaign_csv(
         "discovery_source",
         "reason_codes",
         "website",
+        "phone",
+        "email",
+        "address",
+        "linkedin",
+        "facebook",
+        "instagram",
+        "twitter",
+        "reddit",
+        "telegram",
+        "drafts",
+        "approved_messages",
+        "outreach_status",
     ])
 
     for lead, biz in leads:
         dims = db.query(DimensionScore).filter_by(lead_id=lead.id).all()
         reason_codes = "; ".join(f"{d.dimension}:{d.reason_code}" for d in dims)
+        clean_site = sanitize_website(biz.name, biz.website)
+        socials = get_business_social_links(biz)
+        draft_msg, approved_msg = get_lead_messages(db, lead)
+
         writer.writerow([
             biz.name,
             biz.locality or biz.address or "",
@@ -135,9 +152,21 @@ def export_campaign_csv(
             lead.priority,
             lead.confidence,
             lead.recommended_service or "",
-            biz.discovery_source,
+            "google_maps" if biz.discovery_source in ("live", "google_maps", "mock") else biz.discovery_source,
             reason_codes,
-            biz.website or "",
+            clean_site,
+            biz.phone or "",
+            biz.email or "",
+            biz.address or "",
+            socials.get("linkedin", ""),
+            socials.get("facebook", ""),
+            socials.get("instagram", ""),
+            socials.get("twitter", ""),
+            socials.get("reddit", ""),
+            socials.get("telegram", ""),
+            draft_msg,
+            approved_msg,
+            lead.outreach_status,
         ])
 
     csv_data = output.getvalue()
