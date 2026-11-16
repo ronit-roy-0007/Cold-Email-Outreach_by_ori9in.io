@@ -46,8 +46,34 @@ def verify_api_key(
 
 
 # ==========================================
-# 2. In-Memory Sliding-Window Rate Limiter
+# 2. Distributed & In-Memory Rate Limiter
 # ==========================================
+
+def extract_client_ip(request: Request, trusted_proxies_str: str = "127.0.0.1,::1") -> str:
+    """
+    Secure client IP extraction with reverse proxy validation.
+    Prevents IP spoofing: X-Forwarded-For is ONLY trusted if the direct connection
+    originates from an authorized upstream proxy (e.g. Docker gateway, Nginx, ALB).
+    """
+    direct_ip = request.client.host if request.client else "127.0.0.1"
+    trusted = {p.strip().lower() for p in trusted_proxies_str.split(",") if p.strip()}
+
+    if direct_ip.lower() not in trusted:
+        # Untrusted direct connection - ignore any client-supplied X-Forwarded-For
+        return direct_ip
+
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if not forwarded_for:
+        return direct_ip
+
+    # Parse X-Forwarded-For chain from right to left
+    parts = [p.strip() for p in forwarded_for.split(",") if p.strip()]
+    for ip in reversed(parts):
+        if ip.lower() not in trusted:
+            return ip
+
+    return parts[0] if parts else direct_ip
+
 
 class InMemoryRateLimiter:
     def __init__(self):
@@ -74,14 +100,92 @@ class InMemoryRateLimiter:
         return True
 
 
-rate_limiter = InMemoryRateLimiter()
+class DistributedRateLimiter:
+    """
+    Production-grade distributed rate limiter backed by Redis.
+    - Uses atomic Redis sorted-set operations for multi-worker synchronization.
+    - Degrades safely and transparently to in-memory sliding window during Redis outages.
+    - Preserves existing is_allowed() and reset() interfaces.
+    """
+    def __init__(self, redis_url: str | None = None):
+        self._local = InMemoryRateLimiter()
+        self._redis = None
+        self._redis_url = None
+        if redis_url and redis_url.strip():
+            self.init_redis(redis_url)
+
+    def init_redis(self, redis_url: str) -> None:
+        try:
+            import redis
+            self._redis_url = redis_url.strip()
+            self._redis = redis.Redis.from_url(
+                self._redis_url,
+                socket_timeout=1.5,
+                socket_connect_timeout=1.5,
+                decode_responses=True,
+            )
+        except Exception:
+            self._redis = None
+
+    def reset(self, client_ip: str | None = None) -> None:
+        self._local.reset()
+        if self._redis:
+            try:
+                if client_ip:
+                    self._redis.delete(f"rate_limit:{client_ip}")
+                else:
+                    keys = self._redis.keys("rate_limit:*")
+                    if keys:
+                        self._redis.delete(*keys)
+            except Exception:
+                pass
+
+    def is_allowed(self, client_ip: str, max_requests: int, window_seconds: int = 60) -> bool:
+        if max_requests <= 0:
+            return True
+
+        if self._redis is not None:
+            try:
+                key = f"rate_limit:{client_ip}"
+                now = time.time()
+                cutoff = now - window_seconds
+                member = f"{now:.6f}"
+
+                pipe = self._redis.pipeline()
+                pipe.zremrangebyscore(key, 0, cutoff)
+                pipe.zcard(key)
+                pipe.zadd(key, {member: now})
+                pipe.expire(key, window_seconds + 5)
+                results = pipe.execute()
+
+                current_count = results[1]
+                if current_count >= max_requests:
+                    # Remove the tentatively added member since over limit
+                    try:
+                        self._redis.zrem(key, member)
+                    except Exception:
+                        pass
+                    return False
+                return True
+            except Exception:
+                # Redis outage: fail-safe fallback to local in-memory sliding window
+                pass
+
+        return self._local.is_allowed(client_ip, max_requests, window_seconds)
+
+
+rate_limiter = DistributedRateLimiter()
 
 
 async def check_rate_limit(
     request: Request,
     settings: Settings = Depends(get_settings),
 ) -> None:
-    client_ip = request.client.host if request.client else "127.0.0.1"
+    # Ensure Redis client configured if REDIS_URL provided in settings
+    if settings.REDIS_URL and rate_limiter._redis is None:
+        rate_limiter.init_redis(settings.REDIS_URL)
+
+    client_ip = extract_client_ip(request, settings.TRUSTED_PROXIES)
     limit = settings.RATE_LIMIT_PER_MINUTE
 
     if not rate_limiter.is_allowed(client_ip, max_requests=limit, window_seconds=60):

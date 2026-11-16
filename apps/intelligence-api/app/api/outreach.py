@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import json
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from sqlalchemy import func
@@ -129,14 +130,52 @@ class EmailEventWebhookRequest(BaseModel):
     email: str
     event: str = "complaint"  # complaint, bounce
     details: str | None = None
+    id: str | None = None
 
 
 @router.post("/webhook/event", dependencies=[Depends(check_rate_limit)])
-def email_event_webhook_endpoint(
-    req: EmailEventWebhookRequest,
+async def email_event_webhook_endpoint(
+    request: Request,
     db: Session = Depends(get_session),
+    settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
-    reason = "complaint" if req.event.lower() in ("complaint", "spam_report") else "hard_bounce"
-    entry = add_to_suppression_list(db, req.email, reason=reason)
+    raw_body = await request.body()
+    try:
+        data = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Malformed JSON body: {exc}")
+
+    email = str(data.get("email") or "").strip()
+    event = str(data.get("event") or "complaint").strip()
+    if not email:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing required 'email' field in webhook payload")
+
+    # 1. Provider-Specific Cryptographic Signature Verification
+    if settings.RESEND_WEBHOOK_SECRET:
+        from app.services.webhook_security import verify_resend_svix_signature
+        is_valid, err = verify_resend_svix_signature(raw_body, request.headers, settings.RESEND_WEBHOOK_SECRET)
+        if not is_valid:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid Resend Svix webhook signature: {err}")
+    elif settings.OUTREACH_WEBHOOK_SECRET:
+        from app.services.webhook_security import verify_hmac_webhook_signature
+        sig = request.headers.get("x-webhook-signature") or request.headers.get("x-signature-sha256")
+        ts = request.headers.get("x-webhook-timestamp")
+        is_valid, err = verify_hmac_webhook_signature(raw_body, sig or "", settings.OUTREACH_WEBHOOK_SECRET, timestamp=ts)
+        if not is_valid:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid webhook HMAC signature: {err}")
+
+    # 2. Replay Protection & Event Deduplication
+    from app.services.webhook_security import webhook_cache
+    event_id = data.get("id") or request.headers.get("svix-id") or request.headers.get("x-event-id") or f"{email}:{event}"
+    if not webhook_cache.check_and_record(str(event_id)):
+        return {
+            "status": "duplicate",
+            "message": "Webhook event already processed (idempotent ignore)",
+            "email": email,
+        }
+
+    # 3. Process Suppression
+    reason = "complaint" if event.lower() in ("complaint", "spam_report") else "hard_bounce"
+    entry = add_to_suppression_list(db, email, reason=reason)
     db.commit()
     return {"status": "success", "email": entry.email, "suppression_reason": entry.reason}

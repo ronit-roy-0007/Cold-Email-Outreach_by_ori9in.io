@@ -53,6 +53,11 @@ class Settings(BaseSettings):
     CORS_ORIGINS: str = "*"
     RATE_LIMIT_PER_MINUTE: int = 120
     TELEGRAM_WEBHOOK_SECRET: str = ""
+    FIELD_ENCRYPTION_KEY: str = ""
+    OUTREACH_WEBHOOK_SECRET: str = ""
+    RESEND_WEBHOOK_SECRET: str = ""
+    REDIS_URL: str = ""
+    TRUSTED_PROXIES: str = "127.0.0.1,::1"
 
 
 def resolve_database_url(settings: Settings) -> str:

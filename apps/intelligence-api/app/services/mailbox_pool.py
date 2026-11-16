@@ -78,12 +78,14 @@ def load_mailbox_pool(db: Session, settings: Settings) -> list[MailboxConfig]:
                 pass
 
     # 2. Merge from Database table mailbox_accounts
+    from app.services.crypto import decrypt_credential, encrypt_credential
     db_accounts = db.query(MailboxAccount).filter_by(is_active=True).all()
     for acc in db_accounts:
         clean_email = acc.email.strip().lower()
+        decrypted_pwd = decrypt_credential(acc.password, getattr(settings, "FIELD_ENCRYPTION_KEY", None))
         pool_dict[clean_email] = MailboxConfig(
             email=clean_email,
-            password=acc.password,
+            password=decrypted_pwd,
             sender_name=acc.sender_name or settings.AGENCY_SENDER_NAME or "Roy",
             daily_limit=acc.daily_limit or settings.MAX_EMAILS_PER_DAY or 50,
             is_active=acc.is_active,
@@ -213,18 +215,21 @@ def add_mailbox_account(
     password: str,
     sender_name: str = "Roy",
     daily_limit: int = 50,
+    encryption_key: str | None = None,
 ) -> MailboxAccount:
+    from app.services.crypto import encrypt_credential
     clean = email.strip().lower()
+    enc_pass = encrypt_credential(password.strip(), encryption_key)
     acc = db.query(MailboxAccount).filter_by(email=clean).first()
     if acc:
-        acc.password = password.strip()
+        acc.password = enc_pass
         acc.sender_name = sender_name.strip()
         acc.daily_limit = daily_limit
         acc.is_active = True
     else:
         acc = MailboxAccount(
             email=clean,
-            password=password.strip(),
+            password=enc_pass,
             sender_name=sender_name.strip(),
             daily_limit=daily_limit,
             is_active=True,

@@ -555,11 +555,10 @@ def format_settings_dashboard(
         for i, s in enumerate(statuses, 1):
             total_remaining += s.get("remaining_today", 0)
             status_icon = "🟢" if s.get("is_active") else "🔴"
-            pw_raw = s.get("password") or ""
-            pw_disp = format_app_password(pw_raw) if pw_raw else "•••• •••• •••• ••••"
+            pw_disp = "•••• •••• •••• ••••"
             lines.append(
                 f"{i}. {status_icon} *{s['email']}*\n"
-                f"   • Password: `{pw_disp}`\n"
+                f"   • Password: `{pw_disp}` (Encrypted)\n"
                 f"   • Sent Today: *{s['sent_today']}/{s['daily_limit']}* (Remaining: {s['remaining_today']})\n"
                 f"   • Sender: *{s.get('sender_name', disp_name)}*"
             )
@@ -2144,9 +2143,9 @@ def handle_telegram_update(
                 ),
             }
 
-        acc = add_mailbox_account(db, mb_email, mb_pass, sender_name=mb_sender, daily_limit=settings.MAX_EMAILS_PER_DAY)
+        acc = add_mailbox_account(db, mb_email, mb_pass, sender_name=mb_sender, daily_limit=settings.MAX_EMAILS_PER_DAY, encryption_key=getattr(settings, "FIELD_ENCRYPTION_KEY", None))
         _USER_AWAITING_MAILBOX_INPUT.discard(user_key)
-        pw_disp = format_app_password(acc.password)
+        pw_disp = "•••• •••• •••• ••••"
         buttons = [[{"text": "⚙️ View All in Settings", "callback_data": "open_settings"}]]
         return {
             "status": "success",
@@ -2154,7 +2153,7 @@ def handle_telegram_update(
                 f"✅ *Mailbox Verified & Added to Pool!*\n\n"
                 f"• Address: *{acc.email}*\n"
                 f"• Status: 🟢 *Connected & Authenticated with Google*\n"
-                f"• App Password: `{pw_disp}`\n"
+                f"• App Password: `{pw_disp}` (Encrypted at rest)\n"
                 f"• Sender Name: *{acc.sender_name}*\n"
                 f"• Daily Quota: *{acc.daily_limit} emails/day*\n\n"
                 f"Send `/settings` to view all connected inboxes."
@@ -2201,9 +2200,9 @@ def handle_telegram_update(
                 ),
             }
 
-        acc = add_mailbox_account(db, mb_email, mb_pass, sender_name=mb_sender, daily_limit=settings.MAX_EMAILS_PER_DAY)
+        acc = add_mailbox_account(db, mb_email, mb_pass, sender_name=mb_sender, daily_limit=settings.MAX_EMAILS_PER_DAY, encryption_key=getattr(settings, "FIELD_ENCRYPTION_KEY", None))
         _USER_AWAITING_MAILBOX_INPUT.discard(user_key)
-        pw_disp = format_app_password(acc.password)
+        pw_disp = "•••• •••• •••• ••••"
         buttons = [[{"text": "⚙️ View All in Settings", "callback_data": "open_settings"}]]
         return {
             "status": "success",
@@ -2211,7 +2210,7 @@ def handle_telegram_update(
                 f"✅ *Mailbox Verified & Added to Pool!*\n\n"
                 f"• Address: *{acc.email}*\n"
                 f"• Status: 🟢 *Connected & Authenticated with Google*\n"
-                f"• App Password: `{pw_disp}`\n"
+                f"• App Password: `{pw_disp}` (Encrypted at rest)\n"
                 f"• Sender Name: *{acc.sender_name}*\n"
                 f"• Daily Quota: *{acc.daily_limit} emails/day*\n\n"
                 f"Send `/settings` to view all connected inboxes."
@@ -2377,18 +2376,18 @@ def handle_telegram_update(
                 prof.sender_name = entered_name
                 prof.agency_name = entered_agency
 
-            acc = add_mailbox_account(db, mb_email, mb_pass, sender_name=entered_name, daily_limit=settings.MAX_EMAILS_PER_DAY)
+            acc = add_mailbox_account(db, mb_email, mb_pass, sender_name=entered_name, daily_limit=settings.MAX_EMAILS_PER_DAY, encryption_key=getattr(settings, "FIELD_ENCRYPTION_KEY", None))
             db.commit()
             _USER_ONBOARDING_SESSIONS.pop(user_key, None)
 
-            pw_disp = format_app_password(acc.password)
+            pw_disp = "•••• •••• •••• ••••"
             commands_menu = format_commands_menu(entered_name, entered_agency)
             base_reply = (
                 f"🎉 *Setup Complete! Default Profile & Mailbox Configured:*\n\n"
                 f"• 👤 Sender Name: *{entered_name}*\n"
                 f"• 🏢 Business / Agency: *{entered_agency}*\n"
                 f"• 📬 Default Mailbox: 🟢 *{acc.email}* (Connected & Authenticated with Google)\n"
-                f"• 🔑 App Password: `{pw_disp}`\n"
+                f"• 🔑 App Password: `{pw_disp}` (Encrypted at rest)\n"
                 f"• ⏱️ Daily Quota: *{acc.daily_limit} emails/day*\n\n"
                 f"{commands_menu}\n\n"
                 f"👉 *Ready to find your first clients?* Tap the button below or send `/findleads` to start!"

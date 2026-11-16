@@ -332,13 +332,24 @@ class MailboxAccount(Base):
         Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     email: Mapped[str] = mapped_column(String, unique=True, index=True, nullable=False)
-    password: Mapped[str] = mapped_column(String, nullable=False)  # Google App Password
+    password: Mapped[str] = mapped_column(String, nullable=False)  # Encrypted Google App Password
     sender_name: Mapped[str] = mapped_column(String, nullable=False, default="Roy")
     daily_limit: Mapped[int] = mapped_column(Integer, nullable=False, default=50)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utc_now
     )
+
+    def set_password(self, raw_password: str, key: str | None = None) -> None:
+        from app.services.crypto import encrypt_credential
+        self.password = encrypt_credential(raw_password, key)
+
+    def get_password(self, key: str | None = None) -> str:
+        from app.services.crypto import decrypt_credential
+        return decrypt_credential(self.password, key)
+
+    def __repr__(self) -> str:
+        return f"<MailboxAccount(email={self.email}, active={self.is_active})>"
 
 
 class CampaignLeftoverLead(Base):

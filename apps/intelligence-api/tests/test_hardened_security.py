@@ -1,0 +1,320 @@
+from __future__ import annotations
+
+import base64
+import hashlib
+import hmac
+import time
+from unittest.mock import MagicMock, patch
+
+import pytest
+from starlette.testclient import TestClient
+
+from app.config import Settings, get_settings
+from app.db import get_session
+from app.main import app
+from app.models import MailboxAccount, SuppressionEntry
+from app.security import (
+    DistributedRateLimiter,
+    extract_client_ip,
+)
+from app.services.crypto import (
+    decrypt_credential,
+    derive_fernet_key,
+    encrypt_credential,
+    mask_credential,
+    rotate_credential,
+)
+from app.services.webhook_security import (
+    verify_hmac_webhook_signature,
+    verify_resend_svix_signature,
+    webhook_cache,
+)
+
+
+# ==============================================================================
+# 1. Credential Encryption & Migration Tests
+# ==============================================================================
+
+def test_credential_encryption_and_decryption():
+    raw_password = "abcd efgh ijkl mnop"
+    key = "test-secret-encryption-passphrase-32"
+
+    token = encrypt_credential(raw_password, key)
+    assert token.startswith("gAAAAA")
+    assert token != raw_password
+
+    decrypted = decrypt_credential(token, key)
+    assert decrypted == raw_password
+
+
+def test_invalid_encryption_key_raises():
+    raw_password = "secure-mailbox-password-123"
+    key_a = "secret-key-alpha-12345678901234"
+    key_b = "secret-key-bravo-98765432109876"
+
+    token = encrypt_credential(raw_password, key_a)
+
+    with pytest.raises(ValueError, match="Decryption failed"):
+        decrypt_credential(token, key_b)
+
+
+def test_existing_legacy_credential_migration(db_session):
+    # Existing unencrypted plaintext password from previous database versions
+    legacy_pass = "legacy_unencrypted_pw_1234"
+
+    # 1. decrypt_credential returns legacy plaintext intact without crashing
+    assert decrypt_credential(legacy_pass, "any-key") == legacy_pass
+
+    # 2. MailboxAccount ORM get_password transparently handles legacy plaintext
+    mb = MailboxAccount(
+        email="legacy@gmail.com",
+        password=legacy_pass,
+        sender_name="Legacy Sender",
+        daily_limit=40,
+        is_active=True,
+    )
+    db_session.add(mb)
+    db_session.commit()
+
+    assert mb.get_password("any-key") == legacy_pass
+
+    # 3. Setting a new password encrypts it into a Fernet token
+    mb.set_password("new_secret_password_5678", "my-key")
+    db_session.commit()
+
+    assert mb.password.startswith("gAAAAA")
+    assert mb.get_password("my-key") == "new_secret_password_5678"
+
+
+def test_safe_credential_rotation():
+    raw_secret = "rotation-target-secret"
+    old_key = "old-encryption-key-v1"
+    new_key = "new-encryption-key-v2"
+
+    token_v1 = encrypt_credential(raw_secret, old_key)
+    token_v2 = rotate_credential(token_v1, old_key, new_key)
+
+    assert token_v2.startswith("gAAAAA")
+    assert token_v2 != token_v1
+    assert decrypt_credential(token_v2, new_key) == raw_secret
+
+    with pytest.raises(ValueError):
+        decrypt_credential(token_v2, old_key)
+
+
+def test_password_redaction_and_representation():
+    raw_pass = "abcd efgh ijkl mnop"
+    masked = mask_credential(raw_pass)
+    assert masked == "•••• •••• •••• ••••"
+
+    mb = MailboxAccount(email="audit@example.com", password=raw_pass)
+    rep = repr(mb)
+    assert "audit@example.com" in rep
+    assert raw_pass not in rep
+    assert "password" not in rep.lower()
+
+
+# ==============================================================================
+# 2. Webhook Cryptographic Verification & Replay Protection Tests
+# ==============================================================================
+
+def test_resend_svix_signature_verification_success():
+    raw_key = b"0123456789abcdef0123456789abcdef"
+    secret = "whsec_" + base64.b64encode(raw_key).decode("utf-8")
+    body = b'{"email": "bounced@target.com", "event": "bounce"}'
+    msg_id = "msg_test_12345"
+    now_ts = str(int(time.time()))
+
+    # Build valid Svix signature
+    to_sign = f"{msg_id}.{now_ts}.".encode("utf-8") + body
+    computed_sig = base64.b64encode(hmac.new(raw_key, to_sign, hashlib.sha256).digest()).decode("utf-8")
+
+    headers = {
+        "svix-id": msg_id,
+        "svix-timestamp": now_ts,
+        "svix-signature": f"v1,{computed_sig}",
+    }
+
+    is_valid, err = verify_resend_svix_signature(body, headers, secret)
+    assert is_valid is True
+    assert err is None
+
+
+def test_resend_svix_signature_verification_failure():
+    secret = "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2"
+    body = b'{"email": "bounced@target.com", "event": "bounce"}'
+    headers = {
+        "svix-id": "msg_test_12345",
+        "svix-timestamp": str(int(time.time())),
+        "svix-signature": "v1,invalid_forged_base64_signature=",
+    }
+
+    is_valid, err = verify_resend_svix_signature(body, headers, secret)
+    assert is_valid is False
+    assert "Signature verification failed" in err
+
+
+def test_webhook_replay_protection_and_expired_timestamp():
+    secret = "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2"
+    body = b'{"email": "bounced@target.com", "event": "bounce"}'
+    msg_id = "msg_expired_123"
+
+    # Expired timestamp (10 minutes old)
+    old_ts = str(int(time.time()) - 600)
+    headers = {
+        "svix-id": msg_id,
+        "svix-timestamp": old_ts,
+        "svix-signature": "v1,some_sig",
+    }
+
+    is_valid, err = verify_resend_svix_signature(body, headers, secret, tolerance_seconds=300)
+    assert is_valid is False
+    assert "timestamp outside acceptable tolerance" in err
+
+
+def test_webhook_event_deduplication(db_session):
+    webhook_cache.reset()
+
+    # First attempt: should record and allow
+    assert webhook_cache.check_and_record("evt_unique_101") is True
+
+    # Replay of same event: should detect duplicate
+    assert webhook_cache.check_and_record("evt_unique_101") is False
+
+    # Distinct event: should allow
+    assert webhook_cache.check_and_record("evt_unique_102") is True
+
+
+def test_webhook_endpoint_with_resend_signature_gate(db_session):
+    webhook_cache.reset()
+    raw_key = b"0123456789abcdef0123456789abcdef"
+    secret = "whsec_" + base64.b64encode(raw_key).decode("utf-8")
+
+    webhook_settings = Settings(
+        APP_ENV="production",
+        DATABASE_URL="sqlite:///:memory:",
+        RESEND_WEBHOOK_SECRET=secret,
+        RATE_LIMIT_PER_MINUTE=100,
+    )
+
+    app.dependency_overrides[get_session] = lambda: db_session
+    app.dependency_overrides[get_settings] = lambda: webhook_settings
+
+    with TestClient(app) as client:
+        body_dict = {"email": "resend_bounced@example.com", "event": "bounce", "id": "msg_resend_999"}
+        raw_body = b'{"email": "resend_bounced@example.com", "event": "bounce", "id": "msg_resend_999"}'
+        msg_id = "msg_resend_999"
+        ts = str(int(time.time()))
+
+        # 1. Invalid signature -> 401
+        res_bad = client.post(
+            "/api/outreach/webhook/event",
+            content=raw_body,
+            headers={
+                "svix-id": msg_id,
+                "svix-timestamp": ts,
+                "svix-signature": "v1,bad_sig",
+                "content-type": "application/json",
+            }
+        )
+        assert res_bad.status_code == 401
+
+        # 2. Valid signature -> 200
+        to_sign = f"{msg_id}.{ts}.".encode("utf-8") + raw_body
+        valid_sig = base64.b64encode(hmac.new(raw_key, to_sign, hashlib.sha256).digest()).decode("utf-8")
+
+        res_ok = client.post(
+            "/api/outreach/webhook/event",
+            content=raw_body,
+            headers={
+                "svix-id": msg_id,
+                "svix-timestamp": ts,
+                "svix-signature": f"v1,{valid_sig}",
+                "content-type": "application/json",
+            }
+        )
+        assert res_ok.status_code == 200
+        assert res_ok.json()["status"] == "success"
+
+        # Verify added to suppression list
+        entry = db_session.query(SuppressionEntry).filter_by(email="resend_bounced@example.com").first()
+        assert entry is not None
+
+        # 3. Duplicate event with valid signature -> returns duplicate status without re-inserting
+        res_dup = client.post(
+            "/api/outreach/webhook/event",
+            content=raw_body,
+            headers={
+                "svix-id": msg_id,
+                "svix-timestamp": ts,
+                "svix-signature": f"v1,{valid_sig}",
+                "content-type": "application/json",
+            }
+        )
+        assert res_dup.status_code == 200
+        assert res_dup.json()["status"] == "duplicate"
+
+    app.dependency_overrides.clear()
+
+
+# ==============================================================================
+# 3. Distributed Rate Limiter & Reverse-Proxy Security Tests
+# ==============================================================================
+
+def test_distributed_rate_limiter_redis_mock():
+    limiter = DistributedRateLimiter()
+
+    # Mock Redis instance with atomic sorted set pipeline
+    mock_redis = MagicMock()
+    mock_pipe = MagicMock()
+    mock_redis.pipeline.return_value = mock_pipe
+
+    # Call 1 & 2: current count < limit (e.g. 1)
+    mock_pipe.execute.return_value = [0, 1, 1, True]
+    limiter._redis = mock_redis
+
+    ip = "198.51.100.5"
+    assert limiter.is_allowed(ip, max_requests=3, window_seconds=60) is True
+
+    # Call 3: count reaches limit (3)
+    mock_pipe.execute.return_value = [0, 3, 1, True]
+    assert limiter.is_allowed(ip, max_requests=3, window_seconds=60) is False
+    # Verifies member removed upon exceeding limit
+    mock_redis.zrem.assert_called_once()
+
+
+def test_distributed_rate_limiter_redis_outage_fallback():
+    limiter = DistributedRateLimiter()
+
+    # Simulate Redis connection failure
+    mock_redis = MagicMock()
+    mock_redis.pipeline.side_effect = Exception("Redis cluster unavailable (Connection refused)")
+    limiter._redis = mock_redis
+
+    ip = "192.0.2.1"
+    # Should seamlessly fall back to local in-memory limiter without crashing
+    assert limiter.is_allowed(ip, max_requests=2, window_seconds=10) is True
+    assert limiter.is_allowed(ip, max_requests=2, window_seconds=10) is True
+    assert limiter.is_allowed(ip, max_requests=2, window_seconds=10) is False
+
+
+def test_secure_reverse_proxy_ip_handling():
+    class DummyRequest:
+        def __init__(self, host, headers=None):
+            self.client = MagicMock()
+            self.client.host = host
+            self.headers = headers or {}
+
+    trusted = "127.0.0.1,10.0.0.1"
+
+    # Case 1: Untrusted direct connection with spoofed X-Forwarded-For -> strictly use client.host
+    req_untrusted = DummyRequest("203.0.113.50", {"x-forwarded-for": "1.1.1.1, 8.8.8.8"})
+    assert extract_client_ip(req_untrusted, trusted) == "203.0.113.50"
+
+    # Case 2: Connection from trusted proxy (127.0.0.1) -> inspects X-Forwarded-For
+    req_trusted = DummyRequest("127.0.0.1", {"x-forwarded-for": "198.51.100.77"})
+    assert extract_client_ip(req_trusted, trusted) == "198.51.100.77"
+
+    # Case 3: Chained trusted proxies: Client -> Proxy1 (untrusted) -> Proxy2 (trusted 10.0.0.1) -> Gateway (trusted 127.0.0.1)
+    req_chained = DummyRequest("127.0.0.1", {"x-forwarded-for": "198.51.100.99, 10.0.0.1"})
+    assert extract_client_ip(req_chained, trusted) == "198.51.100.99"
