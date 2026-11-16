@@ -26,17 +26,16 @@ class FetchResult:
 
 
 def _get_fixtures_dir() -> Path:
-    candidates = [
-        Path(__file__).resolve().parents[4] / "tests" / "fixtures" / "sites",
-        Path(__file__).resolve().parents[3] / "tests" / "fixtures" / "sites",
-        Path.cwd() / "tests" / "fixtures" / "sites",
-        Path.cwd().parent / "tests" / "fixtures" / "sites",
-        Path.cwd().parent.parent / "tests" / "fixtures" / "sites",
-    ]
-    for p in candidates:
-        if p.is_dir():
-            return p
-    return candidates[0]
+    current = Path(__file__).resolve()
+    for p in current.parents:
+        cand = p / "tests" / "fixtures" / "sites"
+        if cand.is_dir():
+            return cand
+    for p in (Path.cwd(), Path.cwd().parent, Path.cwd().parent.parent):
+        cand = p / "tests" / "fixtures" / "sites"
+        if cand.is_dir():
+            return cand
+    return current.parent
 
 
 def make_fixture_fetcher(scenario: str = "brochure") -> Any:

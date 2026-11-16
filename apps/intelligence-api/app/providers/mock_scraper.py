@@ -37,24 +37,27 @@ mock_scraper_router = APIRouter()
 _MOCK_JOBS: dict[str, dict[str, Any]] = {}
 
 
-def _get_fixtures_path() -> Path:
-    candidates = [
-        Path(__file__).resolve().parents[3] / "tests" / "fixtures" / "businesses.json",
-        Path(__file__).resolve().parents[4] / "tests" / "fixtures" / "businesses.json",
-        Path.cwd() / "tests" / "fixtures" / "businesses.json",
-        Path.cwd().parent / "tests" / "fixtures" / "businesses.json",
-        Path.cwd().parent.parent / "tests" / "fixtures" / "businesses.json",
-    ]
-    for p in candidates:
-        if p.is_file():
-            return p
-    raise FileNotFoundError("Could not find tests/fixtures/businesses.json fixture file")
+def _get_fixtures_path() -> Path | None:
+    current = Path(__file__).resolve()
+    for p in current.parents:
+        cand = p / "tests" / "fixtures" / "businesses.json"
+        if cand.is_file():
+            return cand
+    cand = Path.cwd() / "tests" / "fixtures" / "businesses.json"
+    if cand.is_file():
+        return cand
+    return None
 
 
 def load_fixture_businesses() -> list[dict[str, Any]]:
     path = _get_fixtures_path()
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+    if path and path.is_file():
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return []
+    return []
 
 
 from app.providers.prospect_generator import generate_candidate_businesses
@@ -79,7 +82,7 @@ def create_mock_job(
     has_score_filter = bool(filters and isinstance(filters, dict) and filters.get("min_score", 0) > 0)
     has_dynamic = bool(filters and isinstance(filters, dict) and filters.get("dynamic", False))
 
-    if is_real_estate and is_dallas and effective_limit <= 25 and not has_score_filter and not has_dynamic and attempt <= 1:
+    if is_real_estate and is_dallas and effective_limit <= 25 and not has_score_filter and not has_dynamic and attempt <= 1 and fixtures:
         results = fixtures[:effective_limit]
     else:
         seed_offset = (attempt - 1) * effective_limit + (depth * 5)
