@@ -1,27 +1,39 @@
 # IntentLead AI Windows PowerShell Startup Script
-$ErrorActionPreference = "Stop"
+param (
+    [switch]$Poller,
+    [switch]$Both
+)
 
+$ErrorActionPreference = "Stop"
 $workspaceRoot = $PSScriptRoot
+
+if ($Poller) {
+    Set-Location $workspaceRoot
+    $env:PYTHONPATH = "apps/intelligence-api"
+    Write-Host "Starting IntentLead AI Telegram Poller Daemon..." -ForegroundColor Cyan
+    python -u scripts/telegram_poller.py
+    exit 0
+}
+
 $apiDir = Join-Path $workspaceRoot "apps\intelligence-api"
 Set-Location $apiDir
-
 $env:PYTHONPATH = "."
 
 if (-not $env:DATABASE_URL) {
-    # Default to PostgreSQL
-    $env:DATABASE_URL = "postgresql://intentlead:change-me@localhost:5432/intentlead"
-}
-
-if ($env:DATABASE_URL.StartsWith("sqlite:")) {
-    if ($env:APP_ENV -ne "development") {
-        Write-Error "ERROR: SQLite is only permitted when APP_ENV=development. Current APP_ENV=$($env:APP_ENV)"
-        exit 1
+    if (Test-Path "$workspaceRoot\.env") {
+        # Environment is loaded from .env
+    } else {
+        $env:DATABASE_URL = "sqlite:///./intentlead.db"
     }
-    Write-Warning "WARNING: Using SQLite in development mode. PostgreSQL is the production source of truth."
 }
 
-Write-Host "Applying Alembic database migrations..." -ForegroundColor Cyan
+Write-Host "Applying database migrations..." -ForegroundColor Cyan
 python -m alembic upgrade head
+
+if ($Both) {
+    Write-Host "Starting API and Telegram Poller..." -ForegroundColor Green
+    Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$workspaceRoot'; `$env:PYTHONPATH='apps/intelligence-api'; python -u scripts/telegram_poller.py"
+}
 
 Write-Host "Starting IntentLead AI operator API on http://localhost:8000..." -ForegroundColor Green
 python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload

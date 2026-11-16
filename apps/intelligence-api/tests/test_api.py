@@ -1,13 +1,15 @@
 import pytest
 from starlette.testclient import TestClient
 
+from app.config import get_settings
 from app.db import get_session
 from app.main import app
 
 
 @pytest.fixture
-def client(db_session):
+def client(db_session, auth_settings):
     app.dependency_overrides[get_session] = lambda: db_session
+    app.dependency_overrides[get_settings] = lambda: auth_settings
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()

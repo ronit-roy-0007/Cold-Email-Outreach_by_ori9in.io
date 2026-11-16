@@ -3,12 +3,13 @@ from __future__ import annotations
 from typing import Any
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
 from app.db import get_session
 from app.models import Business, Evidence, Lead, MessageDraft
+from app.security import ApprovalActionSchema, check_rate_limit, verify_api_key
 from app.services.campaigns import create_campaign
 from app.services.pipeline import run_campaign
 from app.services.telegram_bot import format_approval_card, handle_telegram_update, record_approval
@@ -16,27 +17,33 @@ from app.services.telegram_bot import format_approval_card, handle_telegram_upda
 router = APIRouter(prefix="/api/orchestrator", tags=["orchestrator"])
 
 
-@router.post("/webhooks/telegram")
+@router.post("/webhooks/telegram", dependencies=[Depends(check_rate_limit)])
 def telegram_webhook_endpoint(
     update: dict[str, Any],
     db: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
+    secret_token: str | None = Header(None, alias="X-Telegram-Bot-Api-Secret-Token"),
 ) -> dict[str, Any]:
+    if settings.TELEGRAM_WEBHOOK_SECRET:
+        if secret_token != settings.TELEGRAM_WEBHOOK_SECRET:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid Telegram webhook secret token")
+
     res = handle_telegram_update(update, db, settings)
     if res.get("status") == "unauthorized":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=res["message"])
     return res
 
 
-@router.post("/approvals/{lead_id}")
+@router.post("/approvals/{lead_id}", dependencies=[Depends(check_rate_limit)])
 def process_approval_endpoint(
     lead_id: uuid.UUID,
-    payload: dict[str, Any],
+    payload: ApprovalActionSchema,
     db: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
+    _: str = Depends(verify_api_key),
 ) -> dict[str, Any]:
-    user_id = str(payload.get("user_id") or "api_operator")
-    action = str(payload.get("action") or "approve")
+    user_id = str(payload.user_id or "api_operator")
+    action = str(payload.action or "approve")
 
     if settings.TELEGRAM_ALLOWED_USER_ID and user_id != "api_operator":
         if user_id != str(settings.TELEGRAM_ALLOWED_USER_ID):
@@ -48,11 +55,12 @@ def process_approval_endpoint(
     return res
 
 
-@router.get("/pending-approvals")
+@router.get("/pending-approvals", dependencies=[Depends(check_rate_limit)])
 def list_pending_approvals(
     campaign_id: uuid.UUID | None = None,
     limit: int = 20,
     db: Session = Depends(get_session),
+    _: str = Depends(verify_api_key),
 ) -> list[dict[str, Any]]:
     query = (
         db.query(Lead, Business, MessageDraft)

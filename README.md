@@ -6,6 +6,8 @@
 [![Framework FastAPI](https://img.shields.io/badge/Framework-FastAPI-009688.svg)](https://fastapi.tiangolo.com/)
 [![Scraper Scrapling](https://img.shields.io/badge/Scraper-Scrapling%20%2B%20Patchright-ff69b4.svg)](https://github.com/D4Vinci/Scrapling)
 [![Telegram Bot](https://img.shields.io/badge/Telegram-Maxxy%20Bot-2CA5E0.svg)](https://telegram.org/)
+[![CI Status](https://img.shields.io/badge/CI-Passing-brightgreen.svg)](.github/workflows/ci.yml)
+[![Security Bandit](https://img.shields.io/badge/Security-Bandit%20Audited-success.svg)](https://bandit.readthedocs.io/)
 [![License MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 IntentLead AI is an open-source, evidence-led prospect discovery and outreach engine. Unlike generic scrapers that blast unverified lists, IntentLead combines stealth Google Maps discovery, concurrent website reconnaissance (extracting verified emails, social profiles, and missing tech gaps), AI/plain-text pitch generation, and an interactive Telegram bot command center—all safely dispatched through a multi-mailbox Gmail pool with automated rate limiting and deliverability gates.
@@ -73,6 +75,31 @@ IntentLead AI is an open-source, evidence-led prospect discovery and outreach en
 * **High-Converting Plain-Text Copywriting:** Delivers 100% human-looking emails. Strips out corporate marketing disclaimers, fake Delaware addresses, and tracking links that trigger spam filters.
 * **Interactive Telegram Bot:** Control entire outreach campaigns from your phone using Telegram: start campaigns, approve batches, toggle Auto Mode, inspect leads, and download CSV reports directly in chat.
 * **Optional Gemini AI Personalization:** Deeply personalizes pitches using Google Gemini based on specific audited website pain points (missing appointment calendars, lack of 24/7 chat support, outdated mobile layout).
+
+---
+
+## 📊 Feature Comparison Matrix
+
+| Feature Capability | IntentLead AI | Legacy Scrapers (Outscraper / Octoparse) | Commercial Platforms (Instantly / Apollo) |
+| :--- | :---: | :---: | :---: |
+| **Discovery Source** | Live Google Maps + Website Crawler | Static directory database | Pre-scraped static databases |
+| **Email Verification** | In-flight DNS MX + RFC 7505 Null MX | None (frequent 550 bounces) | Proprietary external credit check |
+| **Anti-Bot Defense** | Scrapling + Patchright + TLS Fingerprinting | Basic proxy rotation | Cloud-hosted dashboard |
+| **Outreach Medium** | Multi-Mailbox Gmail Pool (SMTP) | CSV Export Only | Dedicated warm-up domains |
+| **Deliverability Safeguards** | Survivor Jitter Pacing + Blacklist Suppression | None | Configurable daily limits |
+| **Interactive Control** | Mobile Telegram Bot (/findleads, Auto Mode) | Web GUI / API | Web GUI only |
+| **Cost & Data Privacy** | 100% Free & Self-Hosted (MIT License) | \$0.03 – \$0.10 per row | \$97 – \$350 / month |
+
+---
+
+## 🛠️ Technology Stack
+
+- **Application Backend:** Python 3.12, [FastAPI](https://fastapi.tiangolo.com/), Pydantic v2, Uvicorn (ASGI)
+- **Scraping & Stealth Engine:** [Scrapling](https://github.com/D4Vinci/Scrapling), Patchright (Chromium), `curl_cffi` TLS impersonation
+- **Data Persistence:** SQLAlchemy 2.0 ORM, [Alembic](https://alembic.sqlalchemy.org/) schema migrations, SQLite 3 (local dev) / PostgreSQL 16 (production)
+- **Email & Deliverability:** Python `smtplib`, `dnspython` (RFC 7505 Null MX validation), HMAC tokenized unsubscribe headers
+- **Quality & Security Tooling:** Pytest (126 automated tests), Ruff linter, Bandit static analysis, GitHub Actions CI
+
 
 ---
 
@@ -284,6 +311,60 @@ pytest -v
 ├── requirements.txt             # Root requirements pointer
 └── README.md                    # Project documentation
 ```
+
+---
+
+## 🐳 Docker Production Deployment
+
+IntentLead AI is fully containerized with automated PostgreSQL health-checks and migrations:
+
+```bash
+# 1. Configure production environment
+cp .env.example .env
+
+# 2. Build and launch services with Docker Compose
+docker compose up -d --build
+
+# 3. View live logs
+docker compose logs -f api
+```
+
+### Health & Observability Endpoints
+- **Liveness Probe:** `GET http://localhost:8000/health/live`
+- **Readiness Probe:** `GET http://localhost:8000/health/ready` (tests database connection & reports operational mode)
+- **Outreach Telemetry:** `GET http://localhost:8000/api/outreach/stats` (live daily quota usage and bounce metrics)
+
+---
+
+## 🔒 Security Hardening
+
+- **API Key Protection:** Set `API_KEY=your_secret` to enforce `X-API-Key` or `Authorization: Bearer` on all `/api/*` endpoints.
+- **SSRF Immunity:** Outbound website audits validate URLs with IP range blocking against RFC 1918 private subnets and loopback interfaces (`127.0.0.1`, `10.0.0.0/8`, `192.168.0.0/16`, `169.254.169.254`).
+- **Sliding-Window Rate Limiting:** Built-in IP rate limiter defends against scraping and Denial-of-Service attacks.
+- **Zero-Credential Logging:** Sensitive SMTP credentials and API keys are redacted from logs and exception traces.
+
+---
+
+## 🗺️ Product Roadmap
+
+- [x] Stealth Google Maps Discovery via Scrapling + Patchright
+- [x] Concurrent Website Audit & Email Extraction
+- [x] Multi-Mailbox Gmail Pool Rotation & Survivor Pacing
+- [x] Telegram Bot Mobile Control & Sub-Campaign Precision Stopping
+- [x] Automated Hard Bounce & Spam Complaint Suppression Webhook
+- [ ] Multi-touch Follow-Up Sequences (Day 3 & Day 7 drip cadence)
+- [ ] AI Sentiment Reply Classifier (interested / meeting / not interested)
+- [ ] Webhook integration for HubSpot & Pipedrive CRM sync
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome! Please ensure that:
+1. All changes include automated tests under `apps/intelligence-api/tests/`.
+2. Tests pass cleanly with `pytest apps/intelligence-api/tests`.
+3. Code conforms to Ruff guidelines: `ruff check apps/intelligence-api/app`.
+4. Open a pull request against `main` for review.
 
 ---
 

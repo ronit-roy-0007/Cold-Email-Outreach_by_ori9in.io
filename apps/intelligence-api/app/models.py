@@ -9,6 +9,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     JSON,
     String,
@@ -77,6 +78,11 @@ class ScrapeJob(Base):
 
 class Business(Base):
     __tablename__ = "businesses"
+    __table_args__ = (
+        Index("ix_businesses_website", "website"),
+        Index("ix_businesses_place_id", "place_id"),
+        Index("ix_businesses_email", "email"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -146,6 +152,8 @@ class Lead(Base):
     __tablename__ = "leads"
     __table_args__ = (
         UniqueConstraint("campaign_id", "business_id", name="uq_leads_campaign_business"),
+        Index("ix_leads_campaign_status", "campaign_id", "outreach_status"),
+        Index("ix_leads_score", "overall_score"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -260,6 +268,11 @@ class OperatorProfile(Base):
 
 class OutboundMessage(Base):
     __tablename__ = "outbound_messages"
+    __table_args__ = (
+        Index("ix_outbound_camp_status", "campaign_id", "status"),
+        Index("ix_outbound_sender", "sender_email"),
+        Index("ix_outbound_dispatched_at", "dispatched_at"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -300,6 +313,9 @@ class SuppressionEntry(Base):
 
 class DailyDispatchQuota(Base):
     __tablename__ = "daily_dispatch_quotas"
+    __table_args__ = (
+        Index("ix_daily_quotas_sender_date", "sender_mailbox", "dispatch_date"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -327,6 +343,9 @@ class MailboxAccount(Base):
 
 class CampaignLeftoverLead(Base):
     __tablename__ = "campaign_leftover_leads"
+    __table_args__ = (
+        Index("ix_leftovers_niche_loc_avail", "niche", "location", "is_consumed"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4

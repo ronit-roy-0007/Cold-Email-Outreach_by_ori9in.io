@@ -1,25 +1,35 @@
 #!/usr/bin/env bash
 set -e
 
-cd "$(dirname "$0")/apps/intelligence-api"
+ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
+if [ "$1" == "--poller" ]; then
+  cd "$ROOT_DIR"
+  export PYTHONPATH="apps/intelligence-api"
+  echo "Starting IntentLead AI Telegram Poller Daemon..."
+  exec python3 -u scripts/telegram_poller.py
+fi
+
+cd "$ROOT_DIR/apps/intelligence-api"
 export PYTHONPATH="."
 
 # Check database configuration
 if [ -z "$DATABASE_URL" ]; then
-  export DATABASE_URL="postgresql://intentlead:change-me@localhost:5432/intentlead"
-fi
-
-if [[ "$DATABASE_URL" == sqlite:* ]]; then
-  if [ "$APP_ENV" != "development" ]; then
-    echo "ERROR: SQLite is only permitted when APP_ENV=development. Current APP_ENV=$APP_ENV"
-    exit 1
+  if [ -f "$ROOT_DIR/.env" ]; then
+    # loaded by dotenv
+    :
+  else
+    export DATABASE_URL="sqlite:///./intentlead.db"
   fi
-  echo "WARNING: Using SQLite in development mode. PostgreSQL is the production source of truth."
 fi
 
 echo "Applying Alembic database migrations..."
 alembic upgrade head
+
+if [ "$1" == "--both" ]; then
+  echo "Launching Telegram Poller in background..."
+  (cd "$ROOT_DIR" && PYTHONPATH="apps/intelligence-api" python3 -u scripts/telegram_poller.py) &
+fi
 
 echo "Starting IntentLead AI operator API on http://localhost:8000..."
 exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload

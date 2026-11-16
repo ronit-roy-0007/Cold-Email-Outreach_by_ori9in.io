@@ -10,20 +10,22 @@ from app.config import Settings, get_settings
 from app.db import get_session
 from app.models import Campaign, ScrapeJob
 from app.providers.import_loader import load_import
+from app.security import CampaignCreateSchema, check_rate_limit, verify_api_key
 from app.services.campaigns import create_campaign, get_campaign, list_campaigns
 from app.services.pipeline import process_listings, run_campaign
 
 router = APIRouter(prefix="/api/campaigns", tags=["campaigns"])
 
 
-@router.post("", status_code=status.HTTP_201_CREATED)
+@router.post("", status_code=status.HTTP_201_CREATED, dependencies=[Depends(check_rate_limit)])
 def create_campaign_endpoint(
-    payload: dict[str, Any],
+    payload: CampaignCreateSchema,
     db: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
+    _: str = Depends(verify_api_key),
 ) -> dict[str, Any]:
     try:
-        campaign = create_campaign(db, payload, settings)
+        campaign = create_campaign(db, payload.model_dump(exclude_none=True), settings)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -43,9 +45,10 @@ def create_campaign_endpoint(
     }
 
 
-@router.get("")
+@router.get("", dependencies=[Depends(check_rate_limit)])
 def list_campaigns_endpoint(
     db: Session = Depends(get_session),
+    _: str = Depends(verify_api_key),
 ) -> list[dict[str, Any]]:
     campaigns = list_campaigns(db)
     return [
@@ -62,10 +65,11 @@ def list_campaigns_endpoint(
     ]
 
 
-@router.get("/{campaign_id}")
+@router.get("/{campaign_id}", dependencies=[Depends(check_rate_limit)])
 def get_campaign_endpoint(
     campaign_id: uuid.UUID,
     db: Session = Depends(get_session),
+    _: str = Depends(verify_api_key),
 ) -> dict[str, Any]:
     campaign = get_campaign(db, campaign_id)
     if not campaign:

@@ -21,6 +21,7 @@ services:
       context: ./apps/intelligence-api
       dockerfile: Dockerfile
     container_name: intentlead-api
+    restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
@@ -30,10 +31,19 @@ services:
       DISCOVERY_PROVIDER: mock
       GOOGLE_MAPS_SCRAPER_BASE_URL: http://scraper:8080
       OUTREACH_DRY_RUN: "true"
-      AGENCY_NAME: ""
-      AGENCY_SENDER_NAME: ""
+      AGENCY_NAME: "ori9in.io"
+      AGENCY_SENDER_NAME: "Ronit"
+      API_KEY: ""
+      RATE_LIMIT_PER_MINUTE: "60"
+      CORS_ORIGINS: "*"
     ports:
       - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
 volumes:
   postgres_data:

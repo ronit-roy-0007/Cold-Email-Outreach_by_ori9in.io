@@ -304,7 +304,7 @@ def run_campaign(
             if final_qualified < target_qualified:
                 campaign.is_exhausted = True
 
-        if campaign.target_sent_emails and campaign.total_sent_emails < campaign.target_sent_emails:
+        if campaign.is_auto_mode and campaign.target_sent_emails and campaign.total_sent_emails < campaign.target_sent_emails:
             campaign.status = "in_progress"
         else:
             campaign.status = "completed"

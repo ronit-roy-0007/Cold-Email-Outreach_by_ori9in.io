@@ -5,8 +5,15 @@ from app.config import get_settings, resolve_database_url
 from app.models import Base
 
 db_url = resolve_database_url(get_settings())
-connect_args = {"check_same_thread": False} if db_url.startswith("sqlite") else {}
-engine = create_engine(db_url, connect_args=connect_args)
+engine_kwargs = {"pool_pre_ping": True}
+if db_url.startswith("sqlite"):
+    engine_kwargs["connect_args"] = {"check_same_thread": False}
+else:
+    engine_kwargs["pool_recycle"] = 300
+    engine_kwargs["pool_size"] = 10
+    engine_kwargs["max_overflow"] = 20
+
+engine = create_engine(db_url, **engine_kwargs)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 

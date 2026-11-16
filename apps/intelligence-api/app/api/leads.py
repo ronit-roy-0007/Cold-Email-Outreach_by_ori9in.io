@@ -8,20 +8,26 @@ from sqlalchemy.orm import Session
 
 from app.db import get_session
 from app.models import Business, DimensionScore, Evidence, Lead, MessageDraft, ServiceScore
+from app.security import check_rate_limit, verify_api_key
 
 router = APIRouter(prefix="/api/leads", tags=["leads"])
 
 
-@router.get("")
+@router.get("", dependencies=[Depends(check_rate_limit)])
 def list_leads_endpoint(
     campaign_id: uuid.UUID | None = None,
+    limit: int = 100,
+    offset: int = 0,
     db: Session = Depends(get_session),
+    _: str = Depends(verify_api_key),
 ) -> list[dict[str, Any]]:
     query = db.query(Lead, Business).join(Business, Lead.business_id == Business.id)
     if campaign_id:
         query = query.filter(Lead.campaign_id == campaign_id)
 
-    rows = query.order_by(Lead.overall_score.desc()).all()
+    safe_limit = max(1, min(limit, 500))
+    safe_offset = max(0, offset)
+    rows = query.order_by(Lead.overall_score.desc()).offset(safe_offset).limit(safe_limit).all()
 
     return [
         {
@@ -46,10 +52,11 @@ def list_leads_endpoint(
     ]
 
 
-@router.get("/{lead_id}")
+@router.get("/{lead_id}", dependencies=[Depends(check_rate_limit)])
 def get_lead_endpoint(
     lead_id: uuid.UUID,
     db: Session = Depends(get_session),
+    _: str = Depends(verify_api_key),
 ) -> dict[str, Any]:
     lead = db.get(Lead, lead_id)
     if not lead:

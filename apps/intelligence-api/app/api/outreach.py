@@ -118,3 +118,20 @@ def unsubscribe_endpoint(
     </body>
     </html>
     """
+
+
+class EmailEventWebhookRequest(BaseModel):
+    email: str
+    event: str = "complaint"  # complaint, bounce
+    details: str | None = None
+
+
+@router.post("/webhook/event")
+def email_event_webhook_endpoint(
+    req: EmailEventWebhookRequest,
+    db: Session = Depends(get_session),
+) -> dict[str, Any]:
+    reason = "complaint" if req.event.lower() in ("complaint", "spam_report") else "hard_bounce"
+    entry = add_to_suppression_list(db, req.email, reason=reason)
+    db.commit()
+    return {"status": "success", "email": entry.email, "suppression_reason": entry.reason}

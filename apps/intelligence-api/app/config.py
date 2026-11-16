@@ -49,6 +49,10 @@ class Settings(BaseSettings):
     UNSUBSCRIBE_SECRET: str = "intentlead-compliance-secret-key"
     MAILBOXES_FILE: str = "mailboxes.json"
     ENABLE_DISPATCH_PACING: bool = True
+    API_KEY: str = ""
+    CORS_ORIGINS: str = "*"
+    RATE_LIMIT_PER_MINUTE: int = 120
+    TELEGRAM_WEBHOOK_SECRET: str = ""
 
 
 def resolve_database_url(settings: Settings) -> str:
