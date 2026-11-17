@@ -267,8 +267,17 @@ class OperatorProfile(Base):
     user_id: Mapped[str] = mapped_column(String, primary_key=True)
     sender_name: Mapped[str] = mapped_column(String, nullable=False)
     agency_name: Mapped[str] = mapped_column(String, nullable=False)
+    operator_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("operator_users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utc_now
+    )
+
+    operator_user: Mapped[OperatorUser | None] = relationship(
+        "OperatorUser", foreign_keys=[operator_user_id]
     )
 
 

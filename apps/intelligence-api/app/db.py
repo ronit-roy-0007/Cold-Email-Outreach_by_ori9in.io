@@ -39,6 +39,13 @@ def ensure_schema():
                 if "expanded_locations" not in columns:
                     conn.execute(text("ALTER TABLE campaigns ADD COLUMN expanded_locations JSON DEFAULT '[]'"))
                 conn.commit()
+
+        if "operator_profiles" in inspector.get_table_names():
+            op_columns = {col["name"] for col in inspector.get_columns("operator_profiles")}
+            with engine.connect() as conn:
+                if "operator_user_id" not in op_columns:
+                    conn.execute(text("ALTER TABLE operator_profiles ADD COLUMN operator_user_id CHAR(32) REFERENCES operator_users(id)"))
+                    conn.commit()
     except Exception:
         pass
 

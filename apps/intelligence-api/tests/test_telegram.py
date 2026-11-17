@@ -4,7 +4,8 @@ from starlette.testclient import TestClient
 from app.config import Settings, get_settings
 from app.db import get_session
 from app.main import app
-from app.models import Business, Lead, MailboxAccount, MessageDraft, OperatorProfile
+from app.models import Business, Lead, MailboxAccount, MessageDraft, OperatorProfile, OperatorUser
+from app.services.auth import verify_password
 from app.services.campaigns import create_campaign
 from app.services.pipeline import run_campaign
 
@@ -609,35 +610,34 @@ def test_first_chat_onboarding_and_persistence(client, db_session):
     assert "Step 2/3: What is your Agency or Business Name?" in r2.json()["reply"]
     assert "Roy" in r2.json()["reply"]
 
-    # 3. Provide Agency Name -> triggers Step 3/3 (Outreach Gmail & App Password)
+    # 3. Provide Agency Name -> triggers Step 3/3 (Web Dashboard Password)
     r3 = client.post("/api/orchestrator/webhooks/telegram", json={
         "message": {"from": {"id": user_id}, "text": "ori9in.io"}
     })
     assert r3.status_code == 200
-    assert "Step 3/3: Connect Outreach Gmail & Password" in r3.json()["reply"]
+    assert "Step 3/3: Set your Web Dashboard Password" in r3.json()["reply"]
 
-    # 4. Provide Gmail & 16-letter App Password -> configures defaults and triggers Step 1/5
+    # 4. Provide Password -> creates OperatorUser + OperatorProfile and completes setup
     r4 = client.post("/api/orchestrator/webhooks/telegram", json={
-        "message": {"from": {"id": user_id}, "text": "test_default@gmail.com pass1234 Roy"}
+        "message": {"from": {"id": user_id}, "text": "SecurePassword123!"}
     })
     assert r4.status_code == 200
     reply4 = r4.json()["reply"]
-    assert "Setup Complete! Default Profile & Mailbox Configured" in reply4
+    assert "Account Created Successfully!" in reply4
     assert "/findleads" in reply4
-    assert "/review" in reply4
-    assert "/dispatch" in reply4
-    assert "/settings" in reply4
+    assert "http://localhost:8000/login" in reply4
 
-    # Check database persistence of profile
+    # Check database persistence of profile and linked user
     prof = db_session.get(OperatorProfile, str(user_id))
     assert prof is not None
     assert prof.sender_name == "Roy"
     assert prof.agency_name == "ori9in.io"
+    assert prof.operator_user_id is not None
 
-    # Check database persistence of mailbox
-    acc = db_session.query(MailboxAccount).filter_by(email="test_default@gmail.com").first()
-    assert acc is not None
-    assert acc.is_active is True
+    user = db_session.get(OperatorUser, prof.operator_user_id)
+    assert user is not None
+    assert user.username == "roy"
+    assert verify_password("SecurePassword123!", user.password_hash)
 
     # 5. On subsequent chats, it NEVER asks again!
     r5 = client.post("/api/orchestrator/webhooks/telegram", json={
@@ -698,6 +698,35 @@ def test_profile_commands(client, db_session):
     db_session.refresh(prof)
     assert prof.sender_name == "Jordan Hayes"
     assert prof.agency_name == "Apex Solutions"
+
+    # /setpassword
+    r_pw = client.post("/api/orchestrator/webhooks/telegram", json={
+        "message": {"from": {"id": user_id}, "text": "/setpassword SuperSecret999!"}
+    })
+    assert r_pw.status_code == 200
+    assert "Password Successfully Updated" in r_pw.json()["reply"]
+
+    db_session.refresh(prof)
+    assert prof.operator_user_id is not None
+    user = db_session.get(OperatorUser, prof.operator_user_id)
+    assert verify_password("SuperSecret999!", user.password_hash)
+
+    # Interactive button to edit password
+    r_pw_btn = client.post("/api/orchestrator/webhooks/telegram", json={
+        "callback_query": {"from": {"id": user_id}, "data": "edit_profile:password"}
+    })
+    assert r_pw_btn.status_code == 200
+    assert "Update Web Dashboard Password" in r_pw_btn.json()["reply"]
+
+    # Reply with new password
+    r_pw_reply = client.post("/api/orchestrator/webhooks/telegram", json={
+        "message": {"from": {"id": user_id}, "text": "BrandNewPass456!"}
+    })
+    assert r_pw_reply.status_code == 200
+    assert "Password Successfully Updated" in r_pw_reply.json()["reply"]
+
+    db_session.refresh(user)
+    assert verify_password("BrandNewPass456!", user.password_hash)
 
 
 def test_clean_memory_command(client, db_session):

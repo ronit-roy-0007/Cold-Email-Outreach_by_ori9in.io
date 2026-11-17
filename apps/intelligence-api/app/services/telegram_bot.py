@@ -31,7 +31,9 @@ from app.models import (
     MailboxAccount,
     MessageDraft,
     OperatorProfile,
+    OperatorUser,
 )
+from app.services.auth import hash_password
 from app.services.campaigns import create_campaign
 from app.services.pipeline import run_campaign
 from app.services.gemini_personalizer import generate_gemini_pitch
@@ -698,22 +700,43 @@ def format_profile_card(
     disp_name = prof.sender_name if prof and prof.sender_name else default_name
     disp_agency = prof.agency_name if prof and prof.agency_name else default_agency
 
+    op_user: OperatorUser | None = None
+    if prof and prof.operator_user_id:
+        op_user = db.get(OperatorUser, prof.operator_user_id)
+    if not op_user and prof:
+        clean_uname = re.sub(r"\s+", "_", disp_name)
+        op_user = db.query(OperatorUser).filter(
+            (func.lower(OperatorUser.username) == disp_name.lower()) |
+            (func.lower(OperatorUser.username) == clean_uname.lower())
+        ).first()
+        if op_user:
+            prof.operator_user_id = op_user.id
+            db.commit()
+
+    web_user_disp = op_user.username if op_user else disp_name
+    web_status = "🟢 Active (Linked)" if (op_user and op_user.is_active) else "⚪ Not Linked"
+
     text = (
-        f"👤 *Operator Profile*\n\n"
-        f"• Sender Name: *{disp_name}*\n"
-        f"• Business / Agency: *{disp_agency}*\n"
-        f"• Telegram User ID: `{user_key}`\n\n"
+        f"👤 *Operator Profile & Web Dashboard Credentials*\n\n"
+        f"• 👤 *Sender Name:* *{disp_name}*\n"
+        f"• 🏢 *Business / Agency:* *{disp_agency}*\n"
+        f"• 🌐 *Web Login Username:* `{web_user_disp}`\n"
+        f"• 🔗 *Web Portal URL:* `http://localhost:8000/login`\n"
+        f"• 🛡️ *Web Account Status:* {web_status}\n"
+        f"• 🆔 *Telegram User ID:* `{user_key}`\n\n"
         f"✏️ *To update your details:*\n"
-        f"• Send `/setname <Your Name>` (e.g. `/setname Alex`)\n"
-        f"• Send `/setagency <Your Business Name>` (e.g. `/setagency Apex Digital`)\n\n"
-        f"Or tap a quick button below to update:"
+        f"• Send `/setusername <new_username>` (or `/setname <name>`)\n"
+        f"• Send `/setagency <new_business>`\n"
+        f"• Send `/setpassword <new_password>`\n\n"
+        f"Or tap an action button below to update:"
     )
     buttons = [
         [
-            {"text": "✏️ Change Name", "callback_data": "edit_profile:name"},
+            {"text": "✏️ Change Username", "callback_data": "edit_profile:username"},
             {"text": "🏢 Change Business", "callback_data": "edit_profile:agency"},
         ],
         [
+            {"text": "🔑 Change Password", "callback_data": "edit_profile:password"},
             {"text": "⚙️ Open Settings", "callback_data": "open_settings"},
         ],
     ]
@@ -1159,13 +1182,25 @@ def handle_telegram_update(
     user_key = str(user_id) if user_id is not None else ""
     sender_name, agency_name = get_operator_profile(db, user_id, settings)
 
-    # Security check: verify allowed operator
-    if settings.TELEGRAM_ALLOWED_USER_ID:
-        if str(user_id) != str(settings.TELEGRAM_ALLOWED_USER_ID):
+    # Operator resolution & Authorization
+    is_registered = has_operator_profile(db, user_key)
+    is_allowed_admin = bool(settings.TELEGRAM_ALLOWED_USER_ID and str(user_id) == str(settings.TELEGRAM_ALLOWED_USER_ID))
+
+    if settings.TELEGRAM_ALLOWED_USER_ID and not is_allowed_admin and not is_registered:
+        msg_text = update.get("message", {}).get("text", "").strip()
+        # Admin-restricted commands require prior registration or matching allowed admin ID
+        if msg_text.startswith(("/status", "/live", "/dryrun", "/mode", "/approve_campaign", "/dispatch", "/export_csv", "/addemailaddress", "/addemailadress", "/addmailbox")):
             return {
                 "status": "unauthorized",
                 "message": f"Access denied: Telegram User ID '{user_id}' is not authorized.",
             }
+        if "callback_query" in update:
+            cb_data = update["callback_query"].get("data", "")
+            if not cb_data.startswith(("open_profile", "edit_profile")):
+                return {
+                    "status": "unauthorized",
+                    "message": f"Access denied: Telegram User ID '{user_id}' is not authorized.",
+                }
 
     # 1. Handle Callback Query (Button clicks)
     if "callback_query" in update:
@@ -2010,11 +2045,12 @@ def handle_telegram_update(
             reply, buttons = format_profile_card(db, user_key, sender_name, agency_name)
             return {"status": "success", "reply": reply, "buttons": buttons}
 
-        elif cb_data == "edit_profile:name":
-            _USER_EDIT_PROFILE_SESSIONS[user_key] = "name"
+        elif cb_data in ("edit_profile:name", "edit_profile:username"):
+            _USER_EDIT_PROFILE_SESSIONS[user_key] = "username"
             prompt = (
-                "✏️ *Update Sender Name*\n\n"
-                "Please reply with your new Name (e.g., `Alex Rivera`):\n\n"
+                "✏️ *Update Sender Name & Username*\n\n"
+                "Please reply with your new Name or Username (e.g. `Alex Rivera` or `alex`):\n"
+                "_(This will update your profile signature and Web Dashboard login username)_\n\n"
                 "_(Or send `/cancel` to abort)_"
             )
             return {"status": "success", "reply": prompt}
@@ -2024,6 +2060,16 @@ def handle_telegram_update(
             prompt = (
                 "🏢 *Update Business / Agency Name*\n\n"
                 "Please reply with your new Business Name (e.g., `Apex Digital Solutions`):\n\n"
+                "_(Or send `/cancel` to abort)_"
+            )
+            return {"status": "success", "reply": prompt}
+
+        elif cb_data == "edit_profile:password":
+            _USER_EDIT_PROFILE_SESSIONS[user_key] = "password"
+            prompt = (
+                "🔑 *Update Web Dashboard Password*\n\n"
+                "Please reply with your new Password (minimum 6 characters):\n"
+                "_(This will immediately update your login password for http://localhost:8000/login)_\n\n"
                 "_(Or send `/cancel` to abort)_"
             )
             return {"status": "success", "reply": prompt}
@@ -2398,50 +2444,142 @@ def handle_telegram_update(
         _USER_SETTINGS_SESSIONS.discard(user_key)
         _USER_AWAITING_MAILBOX_INPUT.discard(user_key)
 
-        # 2. Delete user database records (Profile and Mailbox Accounts)
+        # 2. Delete user database records (Profile, User, and Mailbox Accounts)
         prof = db.get(OperatorProfile, user_key)
         if prof:
+            if prof.operator_user_id:
+                op_u = db.get(OperatorUser, prof.operator_user_id)
+                if op_u:
+                    db.delete(op_u)
             db.delete(prof)
         db.query(MailboxAccount).delete()
         db.query(CampaignLeftoverLead).delete()
         db.commit()
 
         # 3. Start fresh first-chat onboarding
-        _USER_ONBOARDING_SESSIONS[user_key] = {"step": "awaiting_sender_name", "trigger_findleads": True}
+        _USER_ONBOARDING_SESSIONS[user_key] = {"step": "awaiting_username", "trigger_findleads": True}
 
         reset_reply = (
             "🧹 *App Data & Memory Cleared!*\n"
-            "All profiles, settings, and connected mailboxes have been completely wiped clean — just like a fresh app install.\n\n"
+            "All profiles, settings, credentials, and connected mailboxes have been completely wiped clean — just like a fresh app install.\n\n"
             "👋 *Welcome to IntentLead AI!*\n"
-            "Let's set up your profile from the very beginning:\n\n"
-            "👤 *Step 1/3: What is your Name?* (Sender Name)\n"
-            "_(e.g., Roy | Alex | Sarah)_"
+            "Let's create your account for both the Telegram Bot and Web Dashboard:\n\n"
+            "👤 *Step 1/3: What is your Name?* (Username for Web Login & Sender Name)\n"
+            "_(3-32 characters, letters, numbers, or underscores, e.g., Roy | Alex | Sarah)_"
         )
         return {"status": "onboarding_start", "reply": reset_reply}
 
     # Handle Active Profile Edit Session
     if user_key in _USER_EDIT_PROFILE_SESSIONS and not text.startswith("/"):
-        field = _USER_EDIT_PROFILE_SESSIONS.pop(user_key)
+        field = _USER_EDIT_PROFILE_SESSIONS.get(user_key)
         prof = db.get(OperatorProfile, user_key)
         if not prof:
             prof = OperatorProfile(user_id=user_key, sender_name=sender_name, agency_name=agency_name)
             db.add(prof)
+            db.flush()
 
         new_val = text.strip()
-        if field == "name":
-            prof.sender_name = new_val
-            field_label = "Sender Name"
-        else:
-            prof.agency_name = new_val
-            field_label = "Business / Agency Name"
-        db.commit()
 
-        card_text, buttons = format_profile_card(db, user_key, prof.sender_name, prof.agency_name)
-        return {
-            "status": "success",
-            "reply": f"✅ *{field_label} updated to:* **{new_val}**\n\n" + card_text,
-            "buttons": buttons,
-        }
+        if field in ("name", "username"):
+            clean_uname = re.sub(r"\s+", "_", new_val).lower()
+            if not re.match(r"^[a-zA-Z0-9_]{2,32}$", clean_uname):
+                return {
+                    "status": "error",
+                    "reply": (
+                        "⚠️ *Invalid Username Format*\n\n"
+                        "Username must be between 2 and 32 characters.\n\n"
+                        "Please reply with a valid username (or send `/cancel` to abort):"
+                    ),
+                }
+
+            # Check uniqueness against other users
+            existing_u = db.query(OperatorUser).filter(func.lower(OperatorUser.username) == clean_uname).first()
+            if existing_u and (not prof.operator_user_id or existing_u.id != prof.operator_user_id):
+                return {
+                    "status": "error",
+                    "reply": (
+                        f"⚠️ *Username Already Taken*\n\n"
+                        f"The username `{clean_uname}` is already in use by another operator. Please choose a different username (or send `/cancel`):"
+                    ),
+                }
+
+            _USER_EDIT_PROFILE_SESSIONS.pop(user_key, None)
+            prof.sender_name = new_val
+
+            # Synchronize with OperatorUser
+            if prof.operator_user_id:
+                op_u = db.get(OperatorUser, prof.operator_user_id)
+                if op_u:
+                    op_u.username = clean_uname
+            else:
+                if existing_u:
+                    prof.operator_user_id = existing_u.id
+                else:
+                    new_u = OperatorUser(username=clean_uname, password_hash=hash_password("changeme123"), is_active=True)
+                    db.add(new_u)
+                    db.flush()
+                    prof.operator_user_id = new_u.id
+            db.commit()
+
+            card_text, buttons = format_profile_card(db, user_key, prof.sender_name, prof.agency_name)
+            return {
+                "status": "success",
+                "reply": f"✅ *Sender Name updated to:* **{new_val}** (Web Login: `{clean_uname}`)\n\n" + card_text,
+                "buttons": buttons,
+            }
+
+        elif field == "agency":
+            _USER_EDIT_PROFILE_SESSIONS.pop(user_key, None)
+            prof.agency_name = new_val
+            db.commit()
+            card_text, buttons = format_profile_card(db, user_key, prof.sender_name, prof.agency_name)
+            return {
+                "status": "success",
+                "reply": f"✅ *Business / Agency Name updated to:* **{new_val}**\n\n" + card_text,
+                "buttons": buttons,
+            }
+
+        elif field == "password":
+            if len(new_val) < 6:
+                return {
+                    "status": "error",
+                    "reply": (
+                        "⚠️ *Password Too Short*\n\n"
+                        "Password must be at least 6 characters long.\n\n"
+                        "Please reply with a secure password (or send `/cancel` to abort):"
+                    ),
+                }
+
+            _USER_EDIT_PROFILE_SESSIONS.pop(user_key, None)
+            new_hash = hash_password(new_val)
+
+            if prof.operator_user_id:
+                op_u = db.get(OperatorUser, prof.operator_user_id)
+                if op_u:
+                    op_u.password_hash = new_hash
+            else:
+                clean_name = re.sub(r"\s+", "_", prof.sender_name).lower()
+                op_u = db.query(OperatorUser).filter_by(username=clean_name).first()
+                if op_u:
+                    op_u.password_hash = new_hash
+                    prof.operator_user_id = op_u.id
+                else:
+                    new_u = OperatorUser(username=clean_name or f"user_{user_key}", password_hash=new_hash, is_active=True)
+                    db.add(new_u)
+                    db.flush()
+                    prof.operator_user_id = new_u.id
+            db.commit()
+
+            card_text, buttons = format_profile_card(db, user_key, prof.sender_name, prof.agency_name)
+            return {
+                "status": "success",
+                "reply": (
+                    "✅ *Web Dashboard Password Successfully Updated!*\n\n"
+                    "Your new password is now active. You can log into the Web Dashboard at:\n"
+                    "🌐 `http://localhost:8000/login`\n\n" + card_text
+                ),
+                "buttons": buttons,
+            }
 
     if text == "/profile":
         card_text, buttons = format_profile_card(db, user_key, sender_name, agency_name)
@@ -2451,26 +2589,55 @@ def handle_telegram_update(
             "buttons": buttons,
         }
 
-    if text.startswith("/setname"):
+    if text.startswith(("/setusername", "/setname")):
         parts = text.split(maxsplit=1)
         if len(parts) < 2 or not parts[1].strip():
-            return {"status": "error", "reply": "Usage: `/setname <Your Name>` (e.g., `/setname Roy`)"}
+            return {"status": "error", "reply": "Usage: `/setname <Your Name>` or `/setusername <username>`"}
         new_name = parts[1].strip()
+        clean_uname = re.sub(r"\s+", "_", new_name).lower()
+        if not re.match(r"^[a-zA-Z0-9_]{2,32}$", clean_uname):
+            return {
+                "status": "error",
+                "reply": "⚠️ *Invalid Username Format*\nUsername must be between 2 and 32 characters and contain only letters, numbers, and underscores.",
+            }
+
         prof = db.get(OperatorProfile, user_key)
+        existing_u = db.query(OperatorUser).filter(func.lower(OperatorUser.username) == clean_uname).first()
+        if existing_u and (not prof or not prof.operator_user_id or existing_u.id != prof.operator_user_id):
+            return {
+                "status": "error",
+                "reply": f"⚠️ *Username Already Taken*\nThe username `{clean_uname}` is already in use by another operator.",
+            }
+
         if not prof:
-            prof = OperatorProfile(user_id=user_key, sender_name=new_name, agency_name=agency_name)
+            op_u = existing_u or OperatorUser(username=clean_uname, password_hash=hash_password("changeme123"), is_active=True)
+            if not existing_u:
+                db.add(op_u)
+                db.flush()
+            prof = OperatorProfile(user_id=user_key, sender_name=new_name, agency_name=agency_name, operator_user_id=op_u.id)
             db.add(prof)
         else:
             prof.sender_name = new_name
+            if prof.operator_user_id:
+                op_u = db.get(OperatorUser, prof.operator_user_id)
+                if op_u:
+                    op_u.username = clean_uname
+            elif existing_u:
+                prof.operator_user_id = existing_u.id
+            else:
+                new_u = OperatorUser(username=clean_uname, password_hash=hash_password("changeme123"), is_active=True)
+                db.add(new_u)
+                db.flush()
+                prof.operator_user_id = new_u.id
         db.commit()
         card_text, buttons = format_profile_card(db, user_key, prof.sender_name, prof.agency_name)
         return {
             "status": "success",
-            "reply": f"✅ Sender name updated to: *{new_name}*\n\n" + card_text,
+            "reply": f"✅ Sender name updated to: *{new_name}* (Web Login: `{clean_uname}`)\n\n" + card_text,
             "buttons": buttons,
         }
 
-    if text.startswith("/setagency"):
+    if text.startswith(("/setagency", "/setbusiness")):
         parts = text.split(maxsplit=1)
         if len(parts) < 2 or not parts[1].strip():
             return {"status": "error", "reply": "Usage: `/setagency <Your Agency>` (e.g., `/setagency ori9in.io`)"}
@@ -2486,6 +2653,51 @@ def handle_telegram_update(
         return {
             "status": "success",
             "reply": f"✅ Business name updated to: *{new_agency}*\n\n" + card_text,
+            "buttons": buttons,
+        }
+
+    if text.startswith(("/setpassword", "/changepassword")):
+        parts = text.split(maxsplit=1)
+        if len(parts) < 2 or not parts[1].strip():
+            return {"status": "error", "reply": "Usage: `/setpassword <new_password>` (minimum 6 characters)"}
+        new_pass = parts[1].strip()
+        if len(new_pass) < 6:
+            return {"status": "error", "reply": "⚠️ Password must be at least 6 characters long."}
+
+        prof = db.get(OperatorProfile, user_key)
+        hashed = hash_password(new_pass)
+        if not prof:
+            clean_name = re.sub(r"\s+", "_", sender_name).lower()
+            op_u = OperatorUser(username=clean_name or f"user_{user_key}", password_hash=hashed, is_active=True)
+            db.add(op_u)
+            db.flush()
+            prof = OperatorProfile(user_id=user_key, sender_name=sender_name, agency_name=agency_name, operator_user_id=op_u.id)
+            db.add(prof)
+        else:
+            if prof.operator_user_id:
+                op_u = db.get(OperatorUser, prof.operator_user_id)
+                if op_u:
+                    op_u.password_hash = hashed
+            else:
+                clean_name = re.sub(r"\s+", "_", prof.sender_name).lower()
+                op_u = db.query(OperatorUser).filter_by(username=clean_name).first()
+                if op_u:
+                    op_u.password_hash = hashed
+                    prof.operator_user_id = op_u.id
+                else:
+                    new_u = OperatorUser(username=clean_name or f"user_{user_key}", password_hash=hashed, is_active=True)
+                    db.add(new_u)
+                    db.flush()
+                    prof.operator_user_id = new_u.id
+        db.commit()
+        card_text, buttons = format_profile_card(db, user_key, prof.sender_name, prof.agency_name)
+        return {
+            "status": "success",
+            "reply": (
+                "✅ *Web Dashboard Password Successfully Updated!*\n\n"
+                "Your new password is now active. You can log into the Web Dashboard at:\n"
+                "🌐 `http://localhost:8000/login`\n\n" + card_text
+            ),
             "buttons": buttons,
         }
 
@@ -2651,13 +2863,14 @@ def handle_telegram_update(
             return {"status": "auth_failed", "reply": f"🔴 *Authentication Failed for {acc.email}:*\n_{err_msg}_"}
 
     if text in ("/setup", "/onboarding"):
-        _USER_ONBOARDING_SESSIONS[user_key] = {"step": "awaiting_sender_name", "trigger_findleads": False}
+        _USER_ONBOARDING_SESSIONS[user_key] = {"step": "awaiting_username", "trigger_findleads": False}
         return {
             "status": "onboarding_start",
             "reply": (
-                "⚙️ *Outreach Profile & Mailbox Setup*\n\n"
-                "👤 *Step 1/3: What is your Name?* (Sender Name)\n"
-                "_(e.g., Roy | Alex | Sarah)_"
+                "⚙️ *Account & Operator Setup*\n\n"
+                "Let's create your account for both the Telegram Bot and Web Dashboard:\n\n"
+                "👤 *Step 1/3: What is your Name?* (Username for Web Login & Sender Name)\n"
+                "_(3-32 characters, letters, numbers, or underscores, e.g. Roy | Alex | Sarah)_"
             ),
         }
 
@@ -2665,144 +2878,134 @@ def handle_telegram_update(
     if has_operator_profile(db, user_key):
         _USER_ONBOARDING_SESSIONS.pop(user_key, None)
 
-    if user_key in _USER_ONBOARDING_SESSIONS and (not text.startswith("/") or text == "/skip"):
+    if user_key in _USER_ONBOARDING_SESSIONS and not text.startswith("/"):
         session = _USER_ONBOARDING_SESSIONS[user_key]
         step = session.get("step")
 
-        if step == "awaiting_sender_name":
-            entered_name = text.strip()
-            session["sender_name"] = entered_name
+        if step in ("awaiting_username", "awaiting_sender_name"):
+            entered_username = text.strip()
+            clean_uname = re.sub(r"\s+", "_", entered_username).lower()
+            if not re.match(r"^[a-zA-Z0-9_]{2,32}$", clean_uname):
+                return {
+                    "status": "error",
+                    "reply": (
+                        "⚠️ *Invalid Username Format*\n\n"
+                        "Username must be 2-32 characters and contain only letters, numbers, and underscores.\n\n"
+                        "Please reply with a valid username:"
+                    ),
+                }
+
+            existing_u = db.query(OperatorUser).filter(func.lower(OperatorUser.username) == clean_uname).first()
+            if existing_u:
+                return {
+                    "status": "error",
+                    "reply": (
+                        f"⚠️ *Username Already Taken*\n\n"
+                        f"The username `{clean_uname}` is already registered. Please choose a different username:"
+                    ),
+                }
+
+            session["username"] = clean_uname
+            session["sender_name"] = entered_username
             session["step"] = "awaiting_agency_name"
             reply = (
-                f"✅ Nice to meet you, *{entered_name}*!\n\n"
+                f"✅ Username *{entered_username}* (`{clean_uname}`) reserved!\n\n"
                 f"🏢 *Step 2/3: What is your Agency or Business Name?*\n"
-                f"This will be used as the signing company for all outreach messages and audit proposals.\n"
+                f"This will be used as the signing business for all audit proposals and outreach campaigns.\n"
                 f"_(e.g., ori9in.io | Apex Digital | Zenith Systems)_"
             )
             return {"status": "onboarding_step", "reply": reply}
 
         elif step == "awaiting_agency_name":
             entered_agency = text.strip()
+            if not entered_agency or len(entered_agency) > 100:
+                return {
+                    "status": "error",
+                    "reply": "⚠️ Business name cannot be empty (maximum 100 characters). Please enter your Business / Agency Name:",
+                }
+
             session["agency_name"] = entered_agency
-            session["step"] = "awaiting_mailbox"
+            session["step"] = "awaiting_password"
             reply = (
-                f"✅ Got it! *{entered_agency}* configured.\n\n"
-                f"📧 *Step 3/3: Connect Outreach Gmail & Password*\n"
-                f"To send automated outreach, let's connect your sending Gmail account. This will be stored as your default settings.\n\n"
-                f"Please send your Gmail address and 16-letter App Password in this exact format:\n"
-                f"`<email> <app_password>`\n\n"
-                f"*Example:*\n"
-                f"`outreach@gmail.com abcd efgh ijkl mnop`\n\n"
-                f"🔑 *How to get your Google App Password:*\n"
-                f"1. Turn ON **2-Step Verification** at [myaccount.google.com/security](https://myaccount.google.com/security)\n"
-                f"2. Generate a 16-letter App Password at [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)\n"
-                f"3. Copy the 16 letters and send them here!\n\n"
-                f"💡 _Tip: If you want to connect your email later, send `/skip`._"
+                f"✅ Got it! *{entered_agency}* recorded.\n\n"
+                f"🔑 *Step 3/3: Set your Web Dashboard Password*\n"
+                f"Choose a secure password to log into your Web Dashboard at `http://localhost:8000/login`.\n\n"
+                f"_(Minimum 6 characters. Type your password below)_"
             )
             return {"status": "onboarding_step", "reply": reply}
 
-        elif step == "awaiting_mailbox":
-            entered_name = session.get("sender_name", sender_name)
-            entered_agency = session.get("agency_name", agency_name)
-            trigger_findleads = session.get("trigger_findleads", True)
-
-            if text.strip().lower() == "/skip":
-                prof = db.get(OperatorProfile, user_key)
-                if not prof:
-                    prof = OperatorProfile(user_id=user_key, sender_name=entered_name, agency_name=entered_agency)
-                    db.add(prof)
-                else:
-                    prof.sender_name = entered_name
-                    prof.agency_name = entered_agency
-                db.commit()
-                _USER_ONBOARDING_SESSIONS.pop(user_key, None)
-
-                commands_menu = format_commands_menu(entered_name, entered_agency)
-                base_reply = (
-                    f"🎉 *Setup Complete! Permanent Profile Stored:*\n\n"
-                    f"• 👤 Sender Name: *{entered_name}*\n"
-                    f"• 🏢 Business / Agency: *{entered_agency}*\n\n"
-                    f"💡 *Mailbox skipped:* You can connect your sending Gmail anytime by sending `/settings`.\n\n"
-                    f"{commands_menu}\n\n"
-                    f"👉 *Ready to find your first clients?* Tap the button below or send `/findleads` to start!"
-                )
-                buttons = [
-                    [
-                        {"text": "🎯 Find Clients Now (/findleads)", "callback_data": "start_findleads"},
-                        {"text": "⚙️ Connect Gmail (/settings)", "callback_data": "open_settings"},
-                    ]
-                ]
-                return {"status": "success", "reply": base_reply, "buttons": buttons}
-
-            # User provided email + password
-            try:
-                mb_email, mb_pass, mb_sender = parse_addmailbox_args(text, default_sender=entered_name)
-            except ValueError as exc:
+        elif step == "awaiting_password":
+            entered_pass = text.strip()
+            if len(entered_pass) < 6:
                 return {
                     "status": "error",
                     "reply": (
-                        "⚠️ *Invalid Format!*\n\n"
-                        "Please send your Gmail and 16-letter App Password separated by a space:\n"
-                        "`yourname@gmail.com abcd efgh ijkl mnop`\n\n"
-                        f"_{exc}_\n\n"
-                        "_(Or send `/skip` to finish profile setup without email for now)_"
+                        "⚠️ *Password Too Short*\n\n"
+                        "Password must be at least 6 characters long.\n\n"
+                        "Please enter a secure password:"
                     ),
                 }
 
-            is_valid, err_msg = verify_gmail_credentials(
-                email=mb_email,
-                password=mb_pass,
-                smtp_host=settings.SMTP_HOST or "smtp.gmail.com",
-                smtp_port=settings.SMTP_PORT or 587,
-            )
-            if not is_valid:
-                return {
-                    "status": "auth_failed",
-                    "reply": (
-                        f"❌ *Google Authentication Failed!*\n\n"
-                        f"Google rejected credentials for *{mb_email}*:\n"
-                        f"_{err_msg}_\n\n"
-                        f"🔍 *How to fix:*\n"
-                        f"1. Make sure **2-Step Verification** is turned ON at [myaccount.google.com/security](https://myaccount.google.com/security).\n"
-                        f"2. Generate a **16-letter App Password** at [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords).\n"
-                        f"3. Do **NOT** use your normal Gmail login password.\n\n"
-                        f"Send your Gmail & 16-letter App Password again:\n"
-                        f"`{mb_email} abcd efgh ijkl mnop`\n"
-                        f"_(Or send `/skip` to finish profile setup and connect email later)_"
-                    ),
-                }
+            entered_username = session.get("username", f"user_{user_key}")
+            entered_sender = session.get("sender_name", entered_username)
+            entered_agency = session.get("agency_name", agency_name)
 
+            # 1. Create or update OperatorUser
+            existing_u = db.query(OperatorUser).filter(func.lower(OperatorUser.username) == entered_username.lower()).first()
+            if not existing_u:
+                op_u = OperatorUser(
+                    username=entered_username,
+                    password_hash=hash_password(entered_pass),
+                    is_active=True,
+                )
+                db.add(op_u)
+                db.flush()
+            else:
+                existing_u.password_hash = hash_password(entered_pass)
+                existing_u.is_active = True
+                op_u = existing_u
+
+            # 2. Create or update OperatorProfile
             prof = db.get(OperatorProfile, user_key)
             if not prof:
-                prof = OperatorProfile(user_id=user_key, sender_name=entered_name, agency_name=entered_agency)
+                prof = OperatorProfile(
+                    user_id=user_key,
+                    sender_name=entered_sender,
+                    agency_name=entered_agency,
+                    operator_user_id=op_u.id,
+                )
                 db.add(prof)
             else:
-                prof.sender_name = entered_name
+                prof.sender_name = entered_sender
                 prof.agency_name = entered_agency
+                prof.operator_user_id = op_u.id
 
-            acc = add_mailbox_account(db, mb_email, mb_pass, sender_name=entered_name, daily_limit=settings.MAX_EMAILS_PER_DAY, encryption_key=getattr(settings, "FIELD_ENCRYPTION_KEY", None))
             db.commit()
             _USER_ONBOARDING_SESSIONS.pop(user_key, None)
 
-            pw_disp = "•••• •••• •••• ••••"
-            commands_menu = format_commands_menu(entered_name, entered_agency)
-            base_reply = (
-                f"🎉 *Setup Complete! Default Profile & Mailbox Configured:*\n\n"
-                f"• 👤 Sender Name: *{entered_name}*\n"
-                f"• 🏢 Business / Agency: *{entered_agency}*\n"
-                f"• 📬 Default Mailbox: 🟢 *{acc.email}* (Connected & Authenticated with Google)\n"
-                f"• 🔑 App Password: `{pw_disp}` (Encrypted at rest)\n"
-                f"• ⏱️ Daily Quota: *{acc.daily_limit} emails/day*\n\n"
+            commands_menu = format_commands_menu(entered_sender, entered_agency)
+            complete_reply = (
+                f"🎉 *Account Created Successfully!*\n\n"
+                f"Your profile and Web Dashboard login access are now live:\n"
+                f"• 👤 *Username / Sender:* `{entered_username}`\n"
+                f"• 🏢 *Business / Agency:* *{entered_agency}*\n"
+                f"• 🌐 *Web Dashboard URL:* `http://localhost:8000/login`\n"
+                f"• 🔑 *Login Credentials:* Active (Username: `{entered_username}`)\n"
+                f"• 🆔 *Telegram User ID:* `{user_key}`\n\n"
+                f"💡 *Tip:* You can change your username, business name, or password anytime using `/profile`.\n\n"
                 f"{commands_menu}\n\n"
-                f"👉 *Ready to find your first clients?* Tap the button below or send `/findleads` to start!"
+                f"👉 *Ready to find your first clients?* Tap below or send `/findleads` to start!"
             )
             buttons = [
                 [
                     {"text": "🎯 Find Clients Now (/findleads)", "callback_data": "start_findleads"},
-                    {"text": "⚙️ Open Settings", "callback_data": "open_settings"},
-                ]
+                    {"text": "⚙️ Connect Gmail (/settings)", "callback_data": "open_settings"},
+                ],
+                [
+                    {"text": "👤 View Profile (/profile)", "callback_data": "open_profile"},
+                ],
             ]
-            return {"status": "success", "reply": base_reply, "buttons": buttons}
+            return {"status": "success", "reply": complete_reply, "buttons": buttons}
 
     if text in ("/exit", "/pause", "/stop"):
         latest_camp = db.query(Campaign).order_by(Campaign.created_at.desc()).first()
@@ -3051,13 +3254,13 @@ def handle_telegram_update(
 
     if text in ("/start", "/help"):
         if not has_operator_profile(db, user_key):
-            _USER_ONBOARDING_SESSIONS[user_key] = {"step": "awaiting_sender_name", "trigger_findleads": True}
+            _USER_ONBOARDING_SESSIONS[user_key] = {"step": "awaiting_username", "trigger_findleads": True}
             welcome_text = (
                 "👋 *Welcome to IntentLead AI Universal Operator Bot!*\n\n"
-                "Before we begin finding high-intent clients, let's configure your default outreach settings.\n"
+                "Before we begin finding high-intent clients, let's create your account for both the Telegram Bot and Web Dashboard:\n"
                 "*This is only asked once on your first chat and saved permanently as your default profile.*\n\n"
-                "👤 *Step 1/3: What is your Name?* (Sender Name)\n"
-                "_(e.g., Roy | Alex | Sarah)_"
+                "👤 *Step 1/3: What is your Name?* (Username for Web Login & Sender Name)\n"
+                "_(3-32 characters, letters, numbers, or underscores, e.g., Roy | Alex | Sarah)_"
             )
             return {"status": "onboarding_start", "reply": welcome_text}
 
@@ -3281,15 +3484,15 @@ def handle_telegram_update(
 
         if not raw_args:
             if not has_operator_profile(db, user_key):
-                _USER_ONBOARDING_SESSIONS[user_key] = {"step": "awaiting_sender_name", "trigger_findleads": True}
+                _USER_ONBOARDING_SESSIONS[user_key] = {"step": "awaiting_username", "trigger_findleads": True}
                 return {
                     "status": "onboarding_start",
                     "reply": (
                         "👋 *Quick 1-Time Setup Required*\n\n"
-                        "Before launching client discovery, please tell me your identity for the outreach messages.\n"
+                        "Before launching client discovery, let's create your account for the Telegram Bot and Web Dashboard:\n"
                         "*This is only asked once on your first chat and saved permanently as default data.*\n\n"
-                        "👤 *Step 1/3: What is your Name?* (Sender Name)\n"
-                        "_(e.g., Roy | Alex | Sarah)_"
+                        "👤 *Step 1/3: What is your Name?* (Username for Web Login & Sender Name)\n"
+                        "_(3-32 characters, letters, numbers, or underscores, e.g., Roy | Alex | Sarah)_"
                     ),
                 }
 
@@ -3575,14 +3778,14 @@ def handle_telegram_update(
         }
 
     if not has_operator_profile(db, user_key) and user_key not in _USER_WIZARD_SESSIONS:
-        _USER_ONBOARDING_SESSIONS[user_key] = {"step": "awaiting_sender_name", "trigger_findleads": True}
+        _USER_ONBOARDING_SESSIONS[user_key] = {"step": "awaiting_username", "trigger_findleads": True}
         return {
             "status": "onboarding_start",
             "reply": (
                 "👋 *Welcome to IntentLead AI!*\n\n"
-                "Before we begin, let's configure your outreach settings (asked only once on your first chat):\n\n"
-                "👤 *Step 1/3: What is your Name?* (Sender Name)\n"
-                "_(e.g., Roy | Alex | Sarah)_"
+                "Before we begin, let's create your account for both the Telegram Bot and Web Dashboard (asked only once on your first chat):\n\n"
+                "👤 *Step 1/3: What is your Name?* (Username for Web Login & Sender Name)\n"
+                "_(3-32 characters, letters, numbers, or underscores, e.g., Roy | Alex | Sarah)_"
             ),
         }
 

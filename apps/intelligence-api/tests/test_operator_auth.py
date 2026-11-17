@@ -9,7 +9,8 @@ from starlette.testclient import TestClient
 from app.config import Settings, get_settings
 from app.db import get_session
 from app.main import app
-from app.models import OperatorSession, OperatorUser
+from app.models import OperatorProfile, OperatorSession, OperatorUser
+from app.services.telegram_bot import handle_telegram_update
 from app.services.auth import (
     _LOGIN_ATTEMPTS,
     cleanup_expired_sessions,
@@ -369,3 +370,152 @@ def test_csrf_token_lifecycle():
     assert validate_csrf_token(session_token, secret, "wrong-token") is False
     assert validate_csrf_token("different-session", secret, csrf) is False
     assert validate_csrf_token(session_token, secret, None) is False
+
+
+# ==============================================================================
+# 8. Full Integration: Telegram Onboarding & Web Login Synchronization
+# ==============================================================================
+
+def test_telegram_onboarding_and_web_login_flow(clean_client, db_session, auth_settings):
+    """
+    End-to-End Test:
+    1. A brand new user chats with the Telegram bot for the first time.
+    2. Bot guides them through 3-step registration (Username, Agency Name, Password).
+    3. User is created in `operator_users` (with PBKDF2 hash) and `operator_profiles`.
+    4. User logs into the Web Dashboard at /login with their exact credentials.
+    5. User changes their password via Telegram (/setpassword).
+    6. Old password is now rejected; new password successfully logs in.
+    7. User changes their username via Telegram (/setusername) and logs in.
+    """
+    _LOGIN_ATTEMPTS.clear()
+    new_user_id = 987654321
+
+    # 1. Telegram /start -> Step 1 (Username)
+    res1 = handle_telegram_update(
+        {"message": {"from": {"id": new_user_id}, "text": "/start"}},
+        db_session,
+        auth_settings,
+    )
+    assert res1["status"] == "onboarding_start"
+    assert "Step 1/3: What is your Name?" in res1["reply"]
+
+    # 2. User enters Username -> Step 2 (Agency Name)
+    res2 = handle_telegram_update(
+        {"message": {"from": {"id": new_user_id}, "text": "charlie"}},
+        db_session,
+        auth_settings,
+    )
+    assert res2["status"] == "onboarding_step"
+    assert "Step 2/3: What is your Agency or Business Name?" in res2["reply"]
+
+    # 3. User enters Agency -> Step 3 (Password)
+    res3 = handle_telegram_update(
+        {"message": {"from": {"id": new_user_id}, "text": "Charlie Growth Agency"}},
+        db_session,
+        auth_settings,
+    )
+    assert res3["status"] == "onboarding_step"
+    assert "Step 3/3: Set your Web Dashboard Password" in res3["reply"]
+
+    # 4. User enters Password -> Complete registration
+    res4 = handle_telegram_update(
+        {"message": {"from": {"id": new_user_id}, "text": "CharlieSecure999!"}},
+        db_session,
+        auth_settings,
+    )
+    db_session.commit()
+    assert res4["status"] == "success"
+    assert "Account Created Successfully!" in res4["reply"]
+    assert "http://localhost:8000/login" in res4["reply"]
+
+    # Verify database persistence
+    prof = db_session.get(OperatorProfile, str(new_user_id))
+    assert prof is not None
+    assert prof.sender_name == "charlie"
+    assert prof.agency_name == "Charlie Growth Agency"
+    assert prof.operator_user_id is not None
+
+    user = db_session.get(OperatorUser, prof.operator_user_id)
+    assert user is not None
+    assert user.username == "charlie"
+    assert verify_password("CharlieSecure999!", user.password_hash)
+
+    # 5. Log in to the Web Dashboard at /login using the newly created credentials
+    login_page = clean_client.get("/login")
+    csrf_token = login_page.cookies["intentlead_login_csrf"]
+
+    login_post = clean_client.post(
+        "/login",
+        data={
+            "username": "charlie",
+            "password": "CharlieSecure999!",
+            "next": "/leads",
+            "csrf_token": csrf_token,
+        },
+    )
+    assert login_post.status_code == 303
+    assert login_post.headers["location"] == "/leads"
+    assert auth_settings.SESSION_COOKIE_NAME in login_post.cookies
+
+    # 6. Change password via Telegram /setpassword
+    res_pw = handle_telegram_update(
+        {"message": {"from": {"id": new_user_id}, "text": "/setpassword CharlieBrandNew888!"}},
+        db_session,
+        auth_settings,
+    )
+    db_session.commit()
+    assert res_pw["status"] == "success"
+    assert "Password Successfully Updated" in res_pw["reply"]
+
+    # 7. Old password is now rejected
+    clean_client.cookies.clear()
+    login_page2 = clean_client.get("/login")
+    csrf_token2 = login_page2.cookies["intentlead_login_csrf"]
+
+    bad_login = clean_client.post(
+        "/login",
+        data={
+            "username": "charlie",
+            "password": "CharlieSecure999!",
+            "csrf_token": csrf_token2,
+        },
+    )
+    assert bad_login.status_code == 401
+
+    # 8. New password successfully logs in
+    good_login = clean_client.post(
+        "/login",
+        data={
+            "username": "charlie",
+            "password": "CharlieBrandNew888!",
+            "csrf_token": csrf_token2,
+        },
+    )
+    assert good_login.status_code == 303
+    assert auth_settings.SESSION_COOKIE_NAME in good_login.cookies
+
+    # 9. Change username via Telegram /setusername
+    res_un = handle_telegram_update(
+        {"message": {"from": {"id": new_user_id}, "text": "/setusername charlie_vip"}},
+        db_session,
+        auth_settings,
+    )
+    db_session.commit()
+    assert res_un["status"] == "success"
+    assert "charlie_vip" in res_un["reply"]
+
+    # 10. Web login with new username succeeds
+    clean_client.cookies.clear()
+    login_page3 = clean_client.get("/login")
+    csrf_token3 = login_page3.cookies["intentlead_login_csrf"]
+
+    vip_login = clean_client.post(
+        "/login",
+        data={
+            "username": "charlie_vip",
+            "password": "CharlieBrandNew888!",
+            "csrf_token": csrf_token3,
+        },
+    )
+    assert vip_login.status_code == 303
+    assert auth_settings.SESSION_COOKIE_NAME in vip_login.cookies
