@@ -51,7 +51,9 @@ def extract_emails_from_html(html: str) -> list[str]:
     except Exception:
         pass
 
-    for match in EMAIL_REGEX.findall(html):
+    # De-obfuscate common anti-spam patterns: [at], (at), and Japanese fullwidth ＠
+    clean_html = re.sub(r"\s*(?:\[at\]|\(at\)|＠)\s*", "@", html, flags=re.IGNORECASE)
+    for match in EMAIL_REGEX.findall(clean_html):
         lower = match.lower().strip()
         if any(lower.endswith(ext) for ext in IGNORE_EXTENSIONS):
             continue
@@ -116,7 +118,7 @@ def crawl_website_details(website_url: str) -> tuple[str | None, dict[str, str]]
                     h = a.attrib.get("href", "")
                     t = (a.text or "").lower()
                     h_low = h.lower()
-                    if any(w in h_low or w in t for w in ("contact", "about", "team", "reach")):
+                    if any(w in h_low or w in t for w in ("contact", "about", "team", "reach", "inquiry", "mail", "form", "toiawase", "問合", "メール")):
                         c_url = urllib.parse.urljoin(website_url, h)
                         if c_url != website_url and c_url.startswith("http"):
                             try:

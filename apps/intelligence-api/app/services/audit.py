@@ -302,12 +302,12 @@ def audit_business(
     hp_lower = hp_html.lower()
 
     # If contact form, appointment, or social links are not obvious on homepage, check at most 1 contact page
-    has_obvious_contact = any(k in hp_lower for k in ("<form", "whatsapp", "wa.me", "contact us", "get in touch", "book online", "appointment"))
+    has_obvious_contact = any(k in hp_lower for k in ("<form", "whatsapp", "wa.me", "contact us", "get in touch", "book online", "appointment", "toiawase", "mailform"))
     if not has_obvious_contact:
         link_pattern = re.compile(r'href=["\']([^"\']+)["\']', re.IGNORECASE)
         for link in link_pattern.findall(hp_html):
             clean_link = link.strip().lower()
-            if any(term in clean_link for term in ("contact", "get-in-touch", "reach-us")) and not any(ext in clean_link for ext in (".css", ".js", ".png", ".jpg", ".jpeg", ".pdf", ".xml", ".svg")):
+            if any(term in clean_link for term in ("contact", "get-in-touch", "reach-us", "inquiry", "mail", "form", "toiawase")) and not any(ext in clean_link for ext in (".css", ".js", ".png", ".jpg", ".jpeg", ".pdf", ".xml", ".svg")):
                 joined = urllib.parse.urljoin(url, link).split("#")[0]
                 if joined.startswith(origin) and joined not in visited:
                     visited.add(joined)
