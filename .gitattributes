@@ -1,0 +1,37 @@
+# Auto-detect text files and normalize line endings to LF on commit
+* text=auto eol=lf
+
+# Explicit line-ending normalization for cross-platform portability
+*.py text eol=lf
+*.sh text eol=lf
+*.bash text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.js text eol=lf
+*.sql text eol=lf
+*.txt text eol=lf
+*.env* text eol=lf
+Dockerfile* text eol=lf
+
+# Windows scripts
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary assets
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.zip binary
+*.tar.gz binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+*.db binary
+*.sqlite binary

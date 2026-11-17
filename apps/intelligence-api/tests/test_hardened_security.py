@@ -628,6 +628,7 @@ def test_production_security_validation():
         DATABASE_URL="postgresql://user:pass@localhost:5432/db",
         FIELD_ENCRYPTION_KEY="",
         CORS_ORIGINS="https://dashboard.example.com",
+        UNSUBSCRIBE_SECRET="test-production-unsubscribe-secret-32b",
     )
     with pytest.raises(SecurityConfigError, match="FIELD_ENCRYPTION_KEY must be configured"):
         validate_production_security(prod_bad_key)
@@ -638,16 +639,29 @@ def test_production_security_validation():
         DATABASE_URL="postgresql://user:pass@localhost:5432/db",
         FIELD_ENCRYPTION_KEY="prod-valid-encryption-key-passphrase",
         CORS_ORIGINS="*",
+        UNSUBSCRIBE_SECRET="test-production-unsubscribe-secret-32b",
     )
     with pytest.raises(SecurityConfigError, match="CORS_ORIGINS cannot be set to wildcard"):
         validate_production_security(prod_bad_cors)
 
-    # Valid production settings pass cleanly
+    # Insecure / default UNSUBSCRIBE_SECRET in production must raise SecurityConfigError
+    prod_bad_unsub = Settings(
+        APP_ENV="production",
+        DATABASE_URL="postgresql://user:pass@localhost:5432/db",
+        FIELD_ENCRYPTION_KEY="prod-valid-encryption-key-passphrase",
+        CORS_ORIGINS="https://intentlead.agency",
+        UNSUBSCRIBE_SECRET="intentlead-compliance-secret-key",
+    )
+    with pytest.raises(SecurityConfigError, match="UNSUBSCRIBE_SECRET must be set to a secure, unique secret"):
+        validate_production_security(prod_bad_unsub)
+
+    # Valid production settings pass cleanly with test-only secret
     prod_valid = Settings(
         APP_ENV="production",
         DATABASE_URL="postgresql://user:pass@localhost:5432/db",
         FIELD_ENCRYPTION_KEY="prod-valid-encryption-key-passphrase",
         CORS_ORIGINS="https://intentlead.agency,https://dashboard.intentlead.agency",
+        UNSUBSCRIBE_SECRET="test-production-unsubscribe-secret-32b",
     )
     validate_production_security(prod_valid)
 
