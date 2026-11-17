@@ -52,8 +52,8 @@ def check_domain_mx(domain: str, resolver_fn: Callable[[str], list[str]] | None 
     try:
         # Check MX records first with dnspython
         custom_resolver = dns.resolver.Resolver()
-        custom_resolver.lifetime = 2.5
-        custom_resolver.timeout = 2.5
+        custom_resolver.lifetime = 1.0
+        custom_resolver.timeout = 1.0
         try:
             mx_answers = custom_resolver.resolve(clean_domain, "MX")
             valid_mx = [

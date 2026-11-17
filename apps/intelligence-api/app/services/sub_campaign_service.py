@@ -328,6 +328,7 @@ def dispatch_subcampaign_batch(
     agency_name: str | None = None,
     sender_name: str | None = None,
     resolver_fn: Callable[[str], list[str]] | None = None,
+    progress_callback: Callable[[int, int, int], None] | None = None,
 ) -> dict[str, Any]:
     """
     Sends outreach serially down the qualified queue until max_to_send is hit.
@@ -363,7 +364,7 @@ def dispatch_subcampaign_batch(
     pool = load_mailbox_pool(db, settings)
     current_mailbox_idx = 0
 
-    for lead, biz in candidates:
+    for idx, (lead, biz) in enumerate(candidates, 1):
         if summary["sent"] + summary["simulated"] >= max_to_send:
             # Reached exact target sent count! Stop immediately.
             break
@@ -418,6 +419,12 @@ def dispatch_subcampaign_batch(
             "status": msg.status,
             "error": msg.error_message,
         })
+
+        if progress_callback and (idx % 15 == 0 or idx == len(candidates)):
+            try:
+                progress_callback(idx, len(candidates), summary["sent"] + summary["simulated"])
+            except Exception:
+                pass
 
     # Update master campaign stats
     new_sends = summary["sent"] + summary["simulated"]

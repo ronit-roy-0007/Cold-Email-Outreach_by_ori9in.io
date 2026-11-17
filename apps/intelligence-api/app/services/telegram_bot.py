@@ -1318,6 +1318,19 @@ def handle_telegram_update(
                     ),
                 )
 
+            def _report_progress(checked: int, total: int, sent: int) -> None:
+                if settings.TELEGRAM_BOT_TOKEN and user_id:
+                    send_telegram_text(
+                        bot_token=settings.TELEGRAM_BOT_TOKEN,
+                        chat_id=user_id,
+                        text=(
+                            f"📨 *Outreach in Progress...*\n"
+                            f"• Checked: *{checked}/{total}* leads\n"
+                            f"• Batch Sent: *{sent}* emails\n"
+                            f"• Campaign Total: *{camp.total_sent_emails + sent} / {camp.target_sent_emails}*"
+                        ),
+                    )
+
             disp_summary = dispatch_subcampaign_batch(
                 db=db,
                 campaign_id=camp.id,
@@ -1325,6 +1338,7 @@ def handle_telegram_update(
                 settings=settings,
                 agency_name=agency_name,
                 sender_name=sender_name,
+                progress_callback=_report_progress,
             )
             batch_sent = disp_summary["sent"] + disp_summary["simulated"]
 
@@ -1469,6 +1483,19 @@ def handle_telegram_update(
             camp.is_auto_mode = True
             bench_score = camp.filters.get("min_score", 0) if isinstance(camp.filters, dict) else 0
 
+            if settings.TELEGRAM_BOT_TOKEN and user_id:
+                send_telegram_text(
+                    bot_token=settings.TELEGRAM_BOT_TOKEN,
+                    chat_id=user_id,
+                    text=(
+                        f"🤖 *Auto Mode Activated!*\n\n"
+                        f"• Target Goal: *{camp.target_sent_emails} sent emails*\n"
+                        f"• Currently Delivered: *{camp.total_sent_emails} / {camp.target_sent_emails}*\n\n"
+                        f"⚡ Pre-flight checking email deliverability & dispatching outreach...\n"
+                        f"_(Live progress updates will appear below)_"
+                    ),
+                )
+
             max_loops = 10
             loop_count = 0
             while camp.total_sent_emails < camp.target_sent_emails and loop_count < max_loops:
@@ -1492,6 +1519,19 @@ def handle_telegram_update(
                     db.add(Approval(lead_id=cand.id, user_id=str(user_id), action="approve"))
                 db.commit()
 
+                def _report_progress(checked: int, total: int, sent: int) -> None:
+                    if settings.TELEGRAM_BOT_TOKEN and user_id:
+                        send_telegram_text(
+                            bot_token=settings.TELEGRAM_BOT_TOKEN,
+                            chat_id=user_id,
+                            text=(
+                                f"📨 *Outreach in Progress...*\n"
+                                f"• Checked: *{checked}/{total}* leads\n"
+                                f"• Batch Sent: *{sent}* emails\n"
+                                f"• Campaign Total: *{camp.total_sent_emails + sent} / {camp.target_sent_emails}*"
+                            ),
+                        )
+
                 disp_summary = dispatch_subcampaign_batch(
                     db=db,
                     campaign_id=camp.id,
@@ -1499,6 +1539,7 @@ def handle_telegram_update(
                     settings=settings,
                     agency_name=agency_name,
                     sender_name=sender_name,
+                    progress_callback=_report_progress,
                 )
                 batch_sent = disp_summary["sent"] + disp_summary["simulated"]
                 if settings.TELEGRAM_BOT_TOKEN and user_id and batch_sent > 0:
