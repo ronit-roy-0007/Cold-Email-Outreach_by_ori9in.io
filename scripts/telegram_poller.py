@@ -20,6 +20,14 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger("telegram_poller")
 
 
+def mask_sensitive(text: Any, token: str | None = None) -> str:
+    """Masks bot token and credentials from logs and error messages."""
+    s = str(text or "")
+    if token and token in s:
+        s = s.replace(token, "[REDACTED_TELEGRAM_TOKEN]")
+    return s
+
+
 def send_reply(token: str, chat_id: int | str, text: str, buttons: list | None = None) -> None:
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     payload: dict = {
@@ -63,7 +71,12 @@ def send_reply(token: str, chat_id: int | str, text: str, buttons: list | None =
                 urllib.request.urlopen(fallback_req2, timeout=15)
                 logger.info("Sent reply to Telegram using text-only fallback after markup error: %s", fb_exc)
             except Exception as fb_exc2:
-                logger.error("Failed to send reply to Telegram: %s (fallback1: %s, fallback2: %s)", exc, fb_exc, fb_exc2)
+                logger.error(
+                    "Failed to send reply to Telegram: %s (fallback1: %s, fallback2: %s)",
+                    mask_sensitive(exc, token),
+                    mask_sensitive(fb_exc, token),
+                    mask_sensitive(fb_exc2, token),
+                )
 
 
 def answer_callback_query(token: str, callback_query_id: str, text: str) -> None:
@@ -78,7 +91,7 @@ def answer_callback_query(token: str, callback_query_id: str, text: str) -> None
     try:
         urllib.request.urlopen(req, timeout=5)
     except Exception as exc:
-        logger.error("Failed to answer callback query: %s", exc)
+        logger.error("Failed to answer callback query: %s", mask_sensitive(exc, token))
 
 
 def send_chat_action(token: str, chat_id: int | str, action: str = "typing") -> None:
@@ -188,20 +201,21 @@ def run_poller():
                                     buttons=res.get("buttons"),
                                 )
                 except Exception as exc:
-                    logger.error("Error processing update %s: %s", update_id, exc)
+                    safe_err = mask_sensitive(exc, token)
+                    logger.error("Error processing update %s: %s", update_id, safe_err)
                     chat_id = update.get("message", {}).get("chat", {}).get("id")
                     if chat_id:
-                        send_reply(token, chat_id, f"⚠️ *Error processing request:*\n`{exc}`\n\nPlease send `/findleads` to retry.")
+                        send_reply(token, chat_id, f"⚠️ *Error processing request:*\n`{safe_err}`\n\nPlease send `/findleads` to retry.")
 
         except (TimeoutError, urllib.error.URLError) as err:
-            logger.debug("Poller timeout/cycle: %s", err)
+            logger.debug("Poller timeout/cycle: %s", mask_sensitive(err, token))
             time.sleep(1)
         except Exception as exc:
             if "timed out" in str(exc).lower():
                 logger.debug("Poller read timeout, cycling...")
                 time.sleep(1)
             else:
-                logger.error("Unexpected error in poller loop: %s", exc)
+                logger.error("Unexpected error in poller loop: %s", mask_sensitive(exc, token))
                 time.sleep(2)
 
 

@@ -16,6 +16,9 @@ from sqlalchemy.orm import Session
 from app.config import Settings, get_settings
 
 logger = logging.getLogger("telegram_bot")
+# Suppress verbose HTTP client logs that may reflect Telegram URLs with bot tokens
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 from app.models import (
     Approval,
     AuditLog,

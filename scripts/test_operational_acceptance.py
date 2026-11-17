@@ -111,7 +111,8 @@ class TestOperationalAcceptance(unittest.TestCase):
 
     def test_p1_04_sendgrid_supported_authentication_channels(self):
         """Verify header authentication (X-Webhook-Secret and Authorization: Bearer) and query fallback"""
-        secret = self.settings.OUTREACH_WEBHOOK_SECRET or "staging-outreach-webhook-secret-2026"
+        secret = self.settings.OUTREACH_WEBHOOK_SECRET
+        self.assertTrue(bool(secret), "OUTREACH_WEBHOOK_SECRET must be configured for webhook testing")
         
         # 1. Header authentication: X-Webhook-Secret (Preferred)
         resp_hdr = self.client.post(

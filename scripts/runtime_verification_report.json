@@ -1,0 +1,112 @@
+{
+  "timestamp": "2026-11-17T06:35:29.947042+00:00",
+  "operator_id": "6107263210",
+  "outreach_dry_run": true,
+  "results": {
+    "requirement_1": "PASS",
+    "requirement_2": "PASS",
+    "requirement_3": "PASS",
+    "requirement_4": "PASS"
+  },
+  "evidence": {
+    "requirement_1": {
+      "question_6a_msg_id": 719,
+      "question_7a_msg_id": 720,
+      "question_7b_msg_id": 721,
+      "yes_template_choice": true,
+      "no_template_choice": false
+    },
+    "requirement_2": {
+      "Standard": {
+        "campaign_id": "8b6d8e1c-88cc-410e-923c-dc2a6aa955bd",
+        "followup_sequence": {
+          "enabled": true,
+          "count": 2,
+          "delays": [
+            2,
+            5
+          ],
+          "schedule_type": "calendar",
+          "final_action": "close"
+        },
+        "confirm_msg_id": 722,
+        "launch_msg_id": 725
+      },
+      "Business Days": {
+        "campaign_id": "15c73cdb-0de5-44ca-a88b-b8912947db80",
+        "followup_sequence": {
+          "enabled": true,
+          "count": 2,
+          "delays": [
+            3,
+            7
+          ],
+          "schedule_type": "business",
+          "final_action": "close"
+        },
+        "confirm_msg_id": 726,
+        "launch_msg_id": 729
+      },
+      "Single Touch": {
+        "campaign_id": "fb70bece-42e6-49fa-9d39-b2dc3217ebfb",
+        "followup_sequence": {
+          "enabled": false,
+          "count": 0,
+          "delays": [],
+          "schedule_type": "calendar",
+          "final_action": "close"
+        },
+        "confirm_msg_id": 730,
+        "launch_msg_id": 733
+      },
+      "Custom": {
+        "campaign_id": "1477af29-d3aa-40b0-880b-d9023c4a8ca5",
+        "followup_sequence": {
+          "enabled": true,
+          "count": 3,
+          "delays": [
+            4,
+            8,
+            12
+          ],
+          "schedule_type": "business",
+          "final_action": "close"
+        },
+        "confirm_msg_id": 734,
+        "launch_msg_id": 737
+      }
+    },
+    "requirement_3": {
+      "standard": {
+        "execution_count": 2,
+        "step_1": "2026-11-22T10:00:00",
+        "step_2": "2026-11-25T10:00:00"
+      },
+      "business_days": {
+        "execution_count": 2,
+        "step_1": "2026-11-25T10:00:00",
+        "step_2": "2026-12-01T10:00:00",
+        "weekends_skipped": true
+      },
+      "single_touch": {
+        "execution_count": 0
+      },
+      "custom": {
+        "execution_count": 3,
+        "step_1": "2026-11-26T10:00:00",
+        "step_2": "2026-12-02T10:00:00",
+        "step_3": "2026-12-08T10:00:00"
+      }
+    },
+    "requirement_4": {
+      "scanned_files": 110,
+      "violations": [],
+      "credentials_checked": [
+        "TELEGRAM_BOT_TOKEN (fp:c52c24705d20)",
+        "OUTREACH_WEBHOOK_SECRET (fp:e428dc3a0728)",
+        "UNSUBSCRIBE_SECRET (fp:a38b9ad9a3df)",
+        "USER_LLM_API_KEY (fp:759465932f79)"
+      ]
+    }
+  }
+}
