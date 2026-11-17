@@ -161,53 +161,308 @@ def test_interactive_wizard_flow(client, db_session):
         "message": {"from": {"id": user_id}, "text": "/findleads"}
     })
     assert r1.status_code == 200
-    assert "Step 1/6" in r1.json()["reply"]
+    assert "Step 1/7" in r1.json()["reply"]
 
     # Step 2: Provide niche
     r2 = client.post("/api/orchestrator/webhooks/telegram", json={
         "message": {"from": {"id": user_id}, "text": "Real Estate"}
     })
     assert r2.status_code == 200
-    assert "Step 2/6" in r2.json()["reply"]
+    assert "Step 2/7" in r2.json()["reply"]
 
     # Step 3: Provide location
     r3 = client.post("/api/orchestrator/webhooks/telegram", json={
         "message": {"from": {"id": user_id}, "text": "Dallas, Texas"}
     })
     assert r3.status_code == 200
-    assert "Step 3/6" in r3.json()["reply"]
+    assert "Step 3/7" in r3.json()["reply"]
 
     # Step 4: Provide services
     r4 = client.post("/api/orchestrator/webhooks/telegram", json={
         "message": {"from": {"id": user_id}, "text": "automation system for business (ad managing, leads handling and follow ups and website providing)"}
     })
     assert r4.status_code == 200
-    assert "Step 4/6" in r4.json()["reply"]
+    assert "Step 4/7" in r4.json()["reply"]
 
     # Step 5: Provide quantity
     r5 = client.post("/api/orchestrator/webhooks/telegram", json={
         "message": {"from": {"id": user_id}, "text": "10"}
     })
     assert r5.status_code == 200
-    assert "Step 5/6" in r5.json()["reply"]
+    assert "Step 5/7" in r5.json()["reply"]
 
     # Step 6: Provide benchmark score
     r6 = client.post("/api/orchestrator/webhooks/telegram", json={
         "message": {"from": {"id": user_id}, "text": "50"}
     })
     assert r6.status_code == 200
-    assert "Step 6/6" in r6.json()["reply"]
+    assert "Step 6/7" in r6.json()["reply"]
+    assert "High-Converting Cold Outreach Template" in r6.json()["reply"]
 
-    # Step 7: Choose template
+    # Step 7: Answer Question 6 (Choose template: yes) -> advances to Question 7/7
     r7 = client.post("/api/orchestrator/webhooks/telegram", json={
         "message": {"from": {"id": user_id}, "text": "yes"}
     })
     assert r7.status_code == 200
-    res_data = r7.json()
+    res7 = r7.json()
+    assert "Step 7/7" in res7["reply"]
+    assert "Follow-Up Configuration" in res7["reply"]
+    assert "buttons" in res7
+
+    # Answer Question 7: Select Standard follow-up -> shows confirmation card
+    r8 = client.post("/api/orchestrator/webhooks/telegram", json={
+        "callback_query": {"from": {"id": user_id}, "data": "wizard_followup:standard"}
+    })
+    assert r8.status_code == 200
+    res8 = r8.json()
+    assert "Confirm Campaign & Follow-Up Architecture" in res8["reply"]
+    assert "Standard" in res8["reply"] or "Day +2" in res8["reply"]
+
+    # Confirm & Launch
+    r9 = client.post("/api/orchestrator/webhooks/telegram", json={
+        "callback_query": {"from": {"id": user_id}, "data": "wizard_confirm:yes"}
+    })
+    assert r9.status_code == 200
+    res_data = r9.json()
     assert "Campaign Completed & Scored" in res_data["reply"]
     assert "csv_content" in res_data
     assert "benchmark_met" in res_data["csv_content"]
     assert "buttons" in res_data
+
+
+def test_wizard_question6_no_personalized_ai_branch(client, db_session):
+    user_id = 123456789
+    db_session.add(OperatorProfile(user_id=str(user_id), sender_name="Alex", agency_name="Nexus"))
+    db_session.commit()
+
+    # Fast forward wizard to Step 6
+    from app.services.telegram_bot import _USER_WIZARD_SESSIONS
+    _USER_WIZARD_SESSIONS[str(user_id)] = {
+        "step": "awaiting_template_choice",
+        "niche": "Law Firms",
+        "location": "Miami",
+        "services": "lead automation",
+        "quantity": 5,
+        "benchmark": 40,
+    }
+
+    # Choose NO (Personalized AI pitches)
+    r = client.post("/api/orchestrator/webhooks/telegram", json={
+        "callback_query": {"from": {"id": user_id}, "data": "wizard_template:no"}
+    })
+    assert r.status_code == 200
+    res = r.json()
+    assert "Personalized AI Proposals" in res["reply"]
+    assert "Step 7/7: Follow-Up Configuration" in res["reply"]
+    assert _USER_WIZARD_SESSIONS[str(user_id)]["use_best_response_template"] is False
+    assert _USER_WIZARD_SESSIONS[str(user_id)]["step"] == "awaiting_followup_config"
+
+    # Clean up
+    _USER_WIZARD_SESSIONS.pop(str(user_id), None)
+
+
+def test_wizard_question7_business_days_branch(client, db_session):
+    user_id = 123456789
+    db_session.add(OperatorProfile(user_id=str(user_id), sender_name="Alex", agency_name="Nexus"))
+    db_session.commit()
+
+    from app.services.telegram_bot import _USER_WIZARD_SESSIONS
+    _USER_WIZARD_SESSIONS[str(user_id)] = {
+        "step": "awaiting_followup_config",
+        "niche": "Roofers",
+        "location": "Phoenix",
+        "services": "website",
+        "quantity": 5,
+        "benchmark": 50,
+        "use_best_response_template": True,
+    }
+
+    # Select Business Days
+    r = client.post("/api/orchestrator/webhooks/telegram", json={
+        "callback_query": {"from": {"id": user_id}, "data": "wizard_followup:biz_days"}
+    })
+    assert r.status_code == 200
+    res = r.json()
+    assert "Confirm Campaign & Follow-Up Architecture" in res["reply"]
+    assert "Business" in res["reply"]
+    assert "Day +3" in res["reply"]
+    assert "Day +7" in res["reply"]
+
+    session = _USER_WIZARD_SESSIONS[str(user_id)]
+    assert session["followup_sequence"]["enabled"] is True
+    assert session["followup_sequence"]["schedule_type"] == "business"
+    assert session["followup_sequence"]["delays"] == [3, 7]
+
+    _USER_WIZARD_SESSIONS.pop(str(user_id), None)
+
+
+def test_wizard_question7_single_touch_branch(client, db_session):
+    user_id = 123456789
+    db_session.add(OperatorProfile(user_id=str(user_id), sender_name="Alex", agency_name="Nexus"))
+    db_session.commit()
+
+    from app.services.telegram_bot import _USER_WIZARD_SESSIONS
+    _USER_WIZARD_SESSIONS[str(user_id)] = {
+        "step": "awaiting_followup_config",
+        "niche": "Gyms",
+        "location": "Austin",
+        "services": "marketing",
+        "quantity": 5,
+        "benchmark": 40,
+        "use_best_response_template": True,
+    }
+
+    # Select Single Touch
+    r = client.post("/api/orchestrator/webhooks/telegram", json={
+        "callback_query": {"from": {"id": user_id}, "data": "wizard_followup:none"}
+    })
+    assert r.status_code == 200
+    res = r.json()
+    assert "Single Touch" in res["reply"]
+    assert "no automated follow-ups" in res["reply"]
+
+    session = _USER_WIZARD_SESSIONS[str(user_id)]
+    assert session["followup_sequence"]["enabled"] is False
+    assert session["followup_sequence"]["delays"] == []
+
+    _USER_WIZARD_SESSIONS.pop(str(user_id), None)
+
+
+def test_wizard_question7_custom_branch(client, db_session):
+    user_id = 123456789
+    db_session.add(OperatorProfile(user_id=str(user_id), sender_name="Alex", agency_name="Nexus"))
+    db_session.commit()
+
+    from app.services.telegram_bot import _USER_WIZARD_SESSIONS
+    _USER_WIZARD_SESSIONS[str(user_id)] = {
+        "step": "awaiting_followup_config",
+        "niche": "Dentists",
+        "location": "Seattle",
+        "services": "automation",
+        "quantity": 5,
+        "benchmark": 40,
+        "use_best_response_template": True,
+    }
+
+    # 1. Tap Custom Intervals button
+    r_btn = client.post("/api/orchestrator/webhooks/telegram", json={
+        "callback_query": {"from": {"id": user_id}, "data": "wizard_followup:custom"}
+    })
+    assert r_btn.status_code == 200
+    assert "Custom Follow-Up Intervals" in r_btn.json()["reply"]
+
+    # 2. Test Invalid custom intervals (decreasing)
+    r_invalid = client.post("/api/orchestrator/webhooks/telegram", json={
+        "message": {"from": {"id": user_id}, "text": "5, 2"}
+    })
+    assert r_invalid.status_code == 200
+    assert "strictly increasing" in r_invalid.json()["reply"]
+
+    # 3. Test Invalid custom intervals (negative)
+    r_neg = client.post("/api/orchestrator/webhooks/telegram", json={
+        "message": {"from": {"id": user_id}, "text": "-2, 5"}
+    })
+    assert r_neg.status_code == 200
+    assert "strictly positive" in r_neg.json()["reply"]
+
+    # 4. Provide Valid custom intervals (2, 5, 9)
+    r_valid = client.post("/api/orchestrator/webhooks/telegram", json={
+        "message": {"from": {"id": user_id}, "text": "2, 5, 9"}
+    })
+    assert r_valid.status_code == 200
+    res_val = r_valid.json()
+    assert "Confirm Campaign & Follow-Up Architecture" in res_val["reply"]
+    assert "3 Touches" in res_val["reply"]
+    assert "Day +2" in res_val["reply"]
+    assert "Day +5" in res_val["reply"]
+    assert "Day +9" in res_val["reply"]
+
+    session = _USER_WIZARD_SESSIONS[str(user_id)]
+    assert session["followup_sequence"]["enabled"] is True
+    assert session["followup_sequence"]["delays"] == [2, 5, 9]
+
+    _USER_WIZARD_SESSIONS.pop(str(user_id), None)
+
+
+def test_wizard_duplicate_callback_handling(client, db_session):
+    user_id = 123456789
+    db_session.add(OperatorProfile(user_id=str(user_id), sender_name="Alex", agency_name="Nexus"))
+    db_session.commit()
+
+    from app.services.telegram_bot import _USER_WIZARD_SESSIONS
+    _USER_WIZARD_SESSIONS[str(user_id)] = {
+        "step": "awaiting_template_choice",
+        "niche": "Dentists",
+        "location": "Seattle",
+        "services": "automation",
+        "quantity": 5,
+        "benchmark": 40,
+    }
+
+    # Click YES once
+    r1 = client.post("/api/orchestrator/webhooks/telegram", json={
+        "callback_query": {"from": {"id": user_id}, "data": "wizard_template:yes"}
+    })
+    assert r1.status_code == 200
+    assert "Step 7/7" in r1.json()["reply"]
+
+    # Click YES second time (duplicate) -> should NOT crash or error
+    r2 = client.post("/api/orchestrator/webhooks/telegram", json={
+        "callback_query": {"from": {"id": user_id}, "data": "wizard_template:yes"}
+    })
+    assert r2.status_code == 200
+    assert "Step 7/7" in r2.json()["reply"]
+
+    # Click standard followup once
+    r3 = client.post("/api/orchestrator/webhooks/telegram", json={
+        "callback_query": {"from": {"id": user_id}, "data": "wizard_followup:standard"}
+    })
+    assert r3.status_code == 200
+    assert "Confirm Campaign" in r3.json()["reply"]
+
+    # Click standard followup second time (duplicate)
+    r4 = client.post("/api/orchestrator/webhooks/telegram", json={
+        "callback_query": {"from": {"id": user_id}, "data": "wizard_followup:standard"}
+    })
+    assert r4.status_code == 200
+    assert "Confirm Campaign" in r4.json()["reply"]
+
+    _USER_WIZARD_SESSIONS.pop(str(user_id), None)
+
+
+def test_wizard_persistence_and_bot_restart_recovery(client, db_session):
+    user_id = 123456789
+    db_session.add(OperatorProfile(user_id=str(user_id), sender_name="Alex", agency_name="Nexus"))
+    db_session.commit()
+
+    from app.services.telegram_bot import _USER_WIZARD_SESSIONS, PersistentSessionDict
+
+    # Save an in-progress session
+    _USER_WIZARD_SESSIONS[str(user_id)] = {
+        "step": "awaiting_followup_config",
+        "niche": "E-commerce",
+        "location": "California",
+        "services": "marketing",
+        "quantity": 25,
+        "benchmark": 45,
+        "use_best_response_template": True,
+    }
+
+    # Simulate bot restart by creating a new session dictionary from disk
+    restored = PersistentSessionDict("wizard_sessions.json", "user_wizard_session")
+    session = restored.get(str(user_id))
+    assert session is not None
+    assert session["niche"] == "E-commerce"
+    assert session["step"] == "awaiting_followup_config"
+
+    # User can seamlessly proceed with Question 7 after restart
+    r = client.post("/api/orchestrator/webhooks/telegram", json={
+        "callback_query": {"from": {"id": user_id}, "data": "wizard_followup:standard"}
+    })
+    assert r.status_code == 200
+    assert "Confirm Campaign & Follow-Up Architecture" in r.json()["reply"]
+
+    _USER_WIZARD_SESSIONS.pop(str(user_id), None)
 
 
 def test_provider_commands_and_callbacks(client, db_session):
@@ -475,6 +730,119 @@ def test_clean_memory_command(client, db_session):
     assert r2.status_code == 200
     assert "Step 2/3: What is your Agency or Business Name?" in r2.json()["reply"]
     assert "NewOperator" in r2.json()["reply"]
+
+
+def test_wizard_campaign_persistence_and_followup_scheduler(client, db_session, auth_settings):
+    from datetime import datetime, timezone
+    from app.models import Campaign, Conversation, FollowUpExecution, Lead
+    from app.services.followup_engine import schedule_followups_for_conversation
+    from app.services.telegram_bot import _execute_wizard_campaign
+
+    user_id = 123456789
+
+    # 1. Standard branch (Day 2, Day 5 Calendar)
+    session_std = {
+        "niche": "Accountants",
+        "location": "Boston, MA",
+        "services": "automation",
+        "quantity": 3,
+        "benchmark": 40,
+        "use_best_response_template": True,
+        "followup_sequence": {
+            "enabled": True,
+            "count": 2,
+            "delays": [2, 5],
+            "schedule_type": "calendar",
+            "final_action": "close",
+        },
+    }
+    _execute_wizard_campaign(
+        db=db_session,
+        settings=auth_settings,
+        user_id=user_id,
+        user_key=str(user_id),
+        session_data=session_std,
+        use_best_response_template=True,
+        agency_name="River Agency",
+        sender_name="Jordan Reed",
+    )
+
+    camp_std = db_session.query(Campaign).filter_by(niche="Accountants").first()
+    assert camp_std is not None
+    assert camp_std.followup_sequence["enabled"] is True
+    assert camp_std.followup_sequence["delays"] == [2, 5]
+    assert camp_std.followup_sequence["schedule_type"] == "calendar"
+
+    lead_std = db_session.query(Lead).filter_by(campaign_id=camp_std.id).first()
+    conv_std = Conversation(
+        campaign_id=camp_std.id,
+        lead_id=lead_std.id,
+        recipient_email="prospect_std@example.com",
+        sender_email="outreach@ori9in.io",
+        subject="Introductory note",
+        status="active",
+        followup_status="active",
+        followup_step=0,
+    )
+    db_session.add(conv_std)
+    db_session.commit()
+
+    base_time = datetime(2026, 11, 16, 10, 0, tzinfo=timezone.utc)
+    executions = schedule_followups_for_conversation(db_session, conv_std, camp_std, base_time=base_time)
+    assert len(executions) == 2
+    assert executions[0].sequence_step == 1
+    assert executions[0].scheduled_at == datetime(2026, 11, 18, 10, 0, tzinfo=timezone.utc)  # Day +2
+    assert executions[1].sequence_step == 2
+    assert executions[1].scheduled_at == datetime(2026, 11, 21, 10, 0, tzinfo=timezone.utc)  # Day +5
+
+    # 2. Single Touch branch (No follow-ups)
+    session_single = {
+        "niche": "Plumbers",
+        "location": "Dallas, TX",
+        "services": "website",
+        "quantity": 3,
+        "benchmark": 40,
+        "use_best_response_template": False,
+        "followup_sequence": {
+            "enabled": False,
+            "count": 0,
+            "delays": [],
+            "schedule_type": "calendar",
+            "final_action": "close",
+        },
+    }
+    _execute_wizard_campaign(
+        db=db_session,
+        settings=auth_settings,
+        user_id=user_id,
+        user_key=str(user_id),
+        session_data=session_single,
+        use_best_response_template=False,
+        agency_name="River Agency",
+        sender_name="Jordan Reed",
+    )
+
+    camp_single = db_session.query(Campaign).filter_by(niche="Plumbers").first()
+    assert camp_single is not None
+    assert camp_single.followup_sequence["enabled"] is False
+
+    lead_single = db_session.query(Lead).filter_by(campaign_id=camp_single.id).first()
+    conv_single = Conversation(
+        campaign_id=camp_single.id,
+        lead_id=lead_single.id,
+        recipient_email="prospect_single@example.com",
+        sender_email="outreach@ori9in.io",
+        subject="Introductory note",
+        status="active",
+        followup_status="idle",
+        followup_step=0,
+    )
+    db_session.add(conv_single)
+    db_session.commit()
+
+    executions_single = schedule_followups_for_conversation(db_session, conv_single, camp_single, base_time=base_time)
+    assert len(executions_single) == 0
+
 
 
 

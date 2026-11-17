@@ -44,3 +44,7 @@ build/
 
 # External Scraper Binaries
 google-maps-scraper/
+
+# Runtime Session Cache
+apps/intelligence-api/app/state/
+state/

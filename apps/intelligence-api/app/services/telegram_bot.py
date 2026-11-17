@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import csv
 import io
+import json
+import logging
 from pathlib import Path
 import re
 from typing import Any
@@ -11,7 +13,9 @@ import httpx
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.config import Settings
+from app.config import Settings, get_settings
+
+logger = logging.getLogger("telegram_bot")
 from app.models import (
     Approval,
     AuditLog,
@@ -513,9 +517,101 @@ ALL_SERVICES = [
 ]
 
 
-# In-memory wizard sessions for multi-step interactive setup
-_USER_WIZARD_SESSIONS: dict[str, dict[str, Any]] = {}
-_USER_ONBOARDING_SESSIONS: dict[str, dict[str, Any]] = {}
+class PersistentSessionDict(dict):
+    """
+    Dictionary with transparent file and Redis persistence.
+    Ensures active onboarding and wizard sessions survive bot restarts, worker crashes,
+    and server reboots.
+    """
+    def __init__(self, filename: str, redis_prefix: str, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.filename = filename
+        self.redis_prefix = redis_prefix
+        base_dir = Path(__file__).resolve().parent.parent
+        self._state_dir = base_dir / "state"
+        self.filepath = self._state_dir / filename
+        self._load()
+
+    def _load(self) -> None:
+        try:
+            if self.filepath.exists():
+                raw = self.filepath.read_text(encoding="utf-8")
+                if raw.strip():
+                    data = json.loads(raw)
+                    if isinstance(data, dict):
+                        super().update(data)
+        except Exception as exc:
+            logger.warning("Could not load sessions from %s: %s", self.filepath, exc)
+
+    def _save_disk(self) -> None:
+        try:
+            self._state_dir.mkdir(parents=True, exist_ok=True)
+            tmp = self.filepath.with_suffix(".tmp")
+            tmp.write_text(json.dumps(dict(self), indent=2), encoding="utf-8")
+            tmp.replace(self.filepath)
+        except Exception as exc:
+            logger.warning("Could not save sessions to %s: %s", self.filepath, exc)
+
+    def _save_redis(self, key: str, value: Any) -> None:
+        try:
+            import redis
+            settings = get_settings()
+            if settings.REDIS_URL:
+                r = redis.Redis.from_url(settings.REDIS_URL, socket_timeout=0.5)
+                r.setex(f"{self.redis_prefix}:{key}", 86400, json.dumps(value))
+        except Exception:
+            pass
+
+    def _delete_redis(self, key: str) -> None:
+        try:
+            import redis
+            settings = get_settings()
+            if settings.REDIS_URL:
+                r = redis.Redis.from_url(settings.REDIS_URL, socket_timeout=0.5)
+                r.delete(f"{self.redis_prefix}:{key}")
+        except Exception:
+            pass
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        super().__setitem__(key, value)
+        self._save_disk()
+        self._save_redis(key, value)
+
+    def pop(self, key: str, default: Any = None) -> Any:
+        res = super().pop(key, default)
+        self._save_disk()
+        self._delete_redis(key)
+        return res
+
+    def __delitem__(self, key: str) -> None:
+        super().__delitem__(key)
+        self._save_disk()
+        self._delete_redis(key)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        if key in self:
+            return super().get(key, default)
+        try:
+            import redis
+            settings = get_settings()
+            if settings.REDIS_URL:
+                r = redis.Redis.from_url(settings.REDIS_URL, socket_timeout=0.5)
+                cached = r.get(f"{self.redis_prefix}:{key}")
+                if cached:
+                    val = json.loads(cached.decode("utf-8"))
+                    super().__setitem__(key, val)
+                    return val
+        except Exception:
+            pass
+        return default
+
+    def sync(self) -> None:
+        self._save_disk()
+
+
+# Persistent wizard and onboarding sessions that survive restarts
+_USER_WIZARD_SESSIONS: dict[str, dict[str, Any]] = PersistentSessionDict("wizard_sessions.json", "user_wizard_session")
+_USER_ONBOARDING_SESSIONS: dict[str, dict[str, Any]] = PersistentSessionDict("onboarding_sessions.json", "user_onboarding_session")
 _USER_SETTINGS_SESSIONS: set[str] = set()
 _USER_AWAITING_MAILBOX_INPUT: set[str] = set()
 _USER_EDIT_PROFILE_SESSIONS: dict[str, str] = {}
@@ -752,7 +848,7 @@ def map_service_keywords(services_str: str) -> list[str]:
 
 def parse_and_validate_followup_input(text: str) -> tuple[bool, dict[str, Any], str]:
     clean = text.strip().lower()
-    if clean in ("none", "no", "disable", "disabled", "0", "skip", "n", "false"):
+    if clean in ("none", "no", "disable", "disabled", "0", "skip", "n", "false", "single", "single touch", "3"):
         return True, {
             "enabled": False,
             "count": 0,
@@ -761,20 +857,20 @@ def parse_and_validate_followup_input(text: str) -> tuple[bool, dict[str, Any], 
             "final_action": "close",
         }, ""
 
-    if clean in ("standard", "std", "default"):
-        return True, {
-            "enabled": True,
-            "count": 3,
-            "delays": [3, 6, 10],
-            "schedule_type": "calendar",
-            "final_action": "close",
-        }, ""
-
-    if clean in ("biz_days", "business", "business_days", "bday", "bdays"):
+    if clean in ("standard", "std", "default", "1"):
         return True, {
             "enabled": True,
             "count": 2,
             "delays": [2, 5],
+            "schedule_type": "calendar",
+            "final_action": "close",
+        }, ""
+
+    if clean in ("biz_days", "business", "business_days", "bday", "bdays", "2"):
+        return True, {
+            "enabled": True,
+            "count": 2,
+            "delays": [3, 7],
             "schedule_type": "business",
             "final_action": "close",
         }, ""
@@ -784,7 +880,7 @@ def parse_and_validate_followup_input(text: str) -> tuple[bool, dict[str, Any], 
 
     delays = [int(n) for n in re.findall(r"\b\d+\b", clean)]
     if not delays:
-        return False, {}, "⚠️ Could not detect valid delay days. Reply with numbers (e.g. `3, 6, 10`) or `none`."
+        return False, {}, "⚠️ Could not detect valid delay days. Reply with numbers (e.g. `2, 5` or `3, 7`) or `none`."
 
     if len(delays) > 5:
         return False, {}, "⚠️ Maximum 5 follow-up touchpoints allowed. Please provide between 1 and 5 delay numbers."
@@ -794,7 +890,7 @@ def parse_and_validate_followup_input(text: str) -> tuple[bool, dict[str, Any], 
 
     for i in range(len(delays) - 1):
         if delays[i] >= delays[i + 1]:
-            return False, {}, f"⚠️ Delays must be strictly increasing. Found Day {delays[i]} followed by Day {delays[i + 1]}. Example: `3, 6, 10`."
+            return False, {}, f"⚠️ Delays must be strictly increasing. Found Day {delays[i]} followed by Day {delays[i + 1]}. Example: `2, 5, 9`."
 
     sched_type = "business" if ("biz" in clean or "business" in clean) else "calendar"
     return True, {
@@ -829,7 +925,7 @@ def format_followup_summary(session_data: dict[str, Any], fu_config: dict[str, A
             f"  • *Final Action:* Mark conversation completed"
         )
     else:
-        fu_summary = "🔄 *Follow-Up Plan:* Single initial email only (no automated follow-ups)"
+        fu_summary = "🔄 *Follow-Up Plan:* Single Touch (Initial email only, no automated follow-ups)"
 
     return (
         f"📋 *Confirm Campaign & Follow-Up Architecture*\n\n"
@@ -1933,29 +2029,67 @@ def handle_telegram_update(
             choice = cb_data.split(":", 1)[1].lower()
             use_best = choice in ("yes", "y", "true", "1")
             session_data = _USER_WIZARD_SESSIONS.get(user_key)
+
+            # Handle duplicate button click safely
+            if session_data and session_data.get("step") in ("awaiting_followup_config", "awaiting_followup_custom"):
+                reply = (
+                    f"✅ Outreach style recorded: *{'Best-Response Proven Hook' if session_data.get('use_best_response_template') else 'Personalized AI Proposals'}*\n\n"
+                    f"🔄 *Step 7/7: Follow-Up Configuration*\n"
+                    f"How would you like to schedule automated follow-ups?\n\n"
+                    f"💡 *Options:*\n"
+                    f"1. *Standard* — Day 2 and Day 5 (Calendar days)\n"
+                    f"2. *Business Days* — Day 3 and Day 7 (Business days only)\n"
+                    f"3. *Single Touch* — No automated follow-ups\n"
+                    f"4. *Custom* — Allow the operator to configure follow-up intervals\n\n"
+                    f"_(Select an option below or reply with custom delays like \"2, 5, 9\" or \"none\")_"
+                )
+                buttons = [
+                    [
+                        {"text": "⚡ Standard (Days 2 & 5)", "callback_data": "wizard_followup:standard"},
+                        {"text": "💼 Business Days (Days 3 & 7)", "callback_data": "wizard_followup:biz_days"},
+                    ],
+                    [
+                        {"text": "🚫 Single Touch (No Follow-Ups)", "callback_data": "wizard_followup:none"},
+                        {"text": "✏️ Custom Intervals", "callback_data": "wizard_followup:custom"},
+                    ]
+                ]
+                return {"status": "in_progress", "reply": reply, "buttons": buttons}
+
+            if session_data and session_data.get("step") == "awaiting_followup_confirm":
+                fu_config = session_data.get("followup_sequence") or {}
+                summary_card = format_followup_summary(session_data, fu_config)
+                buttons = [
+                    [{"text": "🚀 Launch Campaign Now", "callback_data": "wizard_confirm:yes"}],
+                    [{"text": "✏️ Adjust Follow-Up Days", "callback_data": "wizard_confirm:change_followup"}]
+                ]
+                return {"status": "in_progress", "reply": summary_card, "buttons": buttons}
+
             if not session_data or session_data.get("step") != "awaiting_template_choice":
                 return {"status": "error", "reply": "⚠️ Campaign setup session expired or invalid. Please start again with `/findleads`."}
+
             session_data["use_best_response_template"] = use_best
             session_data["step"] = "awaiting_followup_config"
+            _USER_WIZARD_SESSIONS[user_key] = session_data
 
             reply = (
                 f"✅ Outreach style recorded: *{'Best-Response Proven Hook' if use_best else 'Personalized AI Proposals'}*\n\n"
-                f"🔄 *Step 7/7: Automated Follow-Up Sequence*\n"
-                f"Configure automated follow-up emails for unresponsive prospects.\n\n"
-                f"💡 *Pre-configured Sequences:*\n"
-                f"• *Standard (3 Follow-ups):* Day 3, Day 6, Day 10 (Calendar days)\n"
-                f"• *Business Days (2 Follow-ups):* Day 2, Day 5 (Business days only)\n"
-                f"• *Custom Sequence:* Reply with custom delays, e.g.: `3, 7, 14`\n"
-                f"• *No Follow-Ups:* Send initial email only\n\n"
-                f"_(Select a preset button below or reply with custom delays like \"3, 6, 10\" or \"none\")_"
+                f"🔄 *Step 7/7: Follow-Up Configuration*\n"
+                f"How would you like to schedule automated follow-ups?\n\n"
+                f"💡 *Options:*\n"
+                f"1. *Standard* — Day 2 and Day 5 (Calendar days)\n"
+                f"2. *Business Days* — Day 3 and Day 7 (Business days only)\n"
+                f"3. *Single Touch* — No automated follow-ups\n"
+                f"4. *Custom* — Allow the operator to configure follow-up intervals\n\n"
+                f"_(Select an option below or reply with custom delays like \"2, 5, 9\" or \"none\")_"
             )
             buttons = [
                 [
-                    {"text": "⚡ Standard (Days 3, 6, 10)", "callback_data": "wizard_followup:standard"},
-                    {"text": "💼 Business Days (Days 2, 5)", "callback_data": "wizard_followup:biz_days"},
+                    {"text": "⚡ Standard (Days 2 & 5)", "callback_data": "wizard_followup:standard"},
+                    {"text": "💼 Business Days (Days 3 & 7)", "callback_data": "wizard_followup:biz_days"},
                 ],
                 [
-                    {"text": "🚫 No Follow-Ups (Initial Only)", "callback_data": "wizard_followup:none"},
+                    {"text": "🚫 Single Touch (No Follow-Ups)", "callback_data": "wizard_followup:none"},
+                    {"text": "✏️ Custom Intervals", "callback_data": "wizard_followup:custom"},
                 ]
             ]
             return {"status": "in_progress", "reply": reply, "buttons": buttons}
@@ -1963,7 +2097,43 @@ def handle_telegram_update(
         elif cb_data.startswith("wizard_followup:"):
             preset = cb_data.split(":", 1)[1].lower()
             session_data = _USER_WIZARD_SESSIONS.get(user_key)
-            if not session_data or session_data.get("step") != "awaiting_followup_config":
+            if not session_data:
+                return {"status": "error", "reply": "⚠️ Campaign session expired. Please start again with `/findleads`."}
+
+            if preset == "custom":
+                session_data["step"] = "awaiting_followup_custom"
+                _USER_WIZARD_SESSIONS[user_key] = session_data
+                reply = (
+                    "✏️ *Step 7/7: Custom Follow-Up Intervals*\n\n"
+                    "Please reply with your desired follow-up delay days separated by commas.\n\n"
+                    "💡 *Examples:*\n"
+                    "• `2, 5, 9` (Follow up on Day 2, Day 5, and Day 9)\n"
+                    "• `3, 7, 14` (Follow up on Day 3, Day 7, and Day 14)\n"
+                    "• `2, 5 business` (Follow up on Day 2 and Day 5, business days only)\n\n"
+                    "_(Delays must be strictly positive and increasing. Up to 5 touches.)_"
+                )
+                buttons = [
+                    [
+                        {"text": "⚡ Standard (Days 2 & 5)", "callback_data": "wizard_followup:standard"},
+                        {"text": "💼 Business Days (Days 3 & 7)", "callback_data": "wizard_followup:biz_days"},
+                    ],
+                    [
+                        {"text": "🚫 Single Touch (No Follow-Ups)", "callback_data": "wizard_followup:none"},
+                    ]
+                ]
+                return {"status": "in_progress", "reply": reply, "buttons": buttons}
+
+            # Handle duplicate button click
+            if session_data.get("step") == "awaiting_followup_confirm":
+                fu_config = session_data.get("followup_sequence") or {}
+                summary_card = format_followup_summary(session_data, fu_config)
+                buttons = [
+                    [{"text": "🚀 Launch Campaign Now", "callback_data": "wizard_confirm:yes"}],
+                    [{"text": "✏️ Adjust Follow-Up Days", "callback_data": "wizard_confirm:change_followup"}]
+                ]
+                return {"status": "in_progress", "reply": summary_card, "buttons": buttons}
+
+            if session_data.get("step") not in ("awaiting_followup_config", "awaiting_followup_custom"):
                 return {"status": "error", "reply": "⚠️ Campaign session expired. Please start again with `/findleads`."}
 
             valid, fu_config, err = parse_and_validate_followup_input(preset)
@@ -1972,6 +2142,7 @@ def handle_telegram_update(
 
             session_data["followup_sequence"] = fu_config
             session_data["step"] = "awaiting_followup_confirm"
+            _USER_WIZARD_SESSIONS[user_key] = session_data
             summary_card = format_followup_summary(session_data, fu_config)
             buttons = [
                 [
@@ -1987,22 +2158,32 @@ def handle_telegram_update(
             action = cb_data.split(":", 1)[1].lower()
             session_data = _USER_WIZARD_SESSIONS.get(user_key)
             if not session_data:
-                return {"status": "error", "reply": "⚠️ Campaign session expired. Please start again with `/findleads`."}
+                return {
+                    "status": "already_processed",
+                    "reply": "⏳ Campaign is already queued and processing! You can monitor live progress with `/status`.",
+                }
 
             if action == "change_followup":
                 session_data["step"] = "awaiting_followup_config"
+                _USER_WIZARD_SESSIONS[user_key] = session_data
                 reply = (
-                    "🔄 *Adjust Follow-Up Sequence*\n"
-                    "Please reply with your desired delay days (e.g. `3, 6, 10` or `none`):\n\n"
-                    "_(Delays must be strictly positive and increasing)_"
+                    "🔄 *Step 7/7: Follow-Up Configuration*\n"
+                    "How would you like to schedule automated follow-ups?\n\n"
+                    "💡 *Options:*\n"
+                    "1. *Standard* — Day 2 and Day 5 (Calendar days)\n"
+                    "2. *Business Days* — Day 3 and Day 7 (Business days only)\n"
+                    "3. *Single Touch* — No automated follow-ups\n"
+                    "4. *Custom* — Allow the operator to configure follow-up intervals\n\n"
+                    "_(Select an option below or reply with custom delays like \"2, 5, 9\" or \"none\")_"
                 )
                 buttons = [
                     [
-                        {"text": "⚡ Standard (Days 3, 6, 10)", "callback_data": "wizard_followup:standard"},
-                        {"text": "💼 Business Days (Days 2, 5)", "callback_data": "wizard_followup:biz_days"},
+                        {"text": "⚡ Standard (Days 2 & 5)", "callback_data": "wizard_followup:standard"},
+                        {"text": "💼 Business Days (Days 3 & 7)", "callback_data": "wizard_followup:biz_days"},
                     ],
                     [
-                        {"text": "🚫 No Follow-Ups", "callback_data": "wizard_followup:none"},
+                        {"text": "🚫 Single Touch (No Follow-Ups)", "callback_data": "wizard_followup:none"},
+                        {"text": "✏️ Custom Intervals", "callback_data": "wizard_followup:custom"},
                     ]
                 ]
                 return {"status": "in_progress", "reply": reply, "buttons": buttons}
@@ -2478,6 +2659,9 @@ def handle_telegram_update(
         }
 
     # Handle Active Onboarding Session (Step 1, Step 2, Step 3)
+    if has_operator_profile(db, user_key):
+        _USER_ONBOARDING_SESSIONS.pop(user_key, None)
+
     if user_key in _USER_ONBOARDING_SESSIONS and (not text.startswith("/") or text == "/skip"):
         session = _USER_ONBOARDING_SESSIONS[user_key]
         step = session.get("step")
@@ -2659,6 +2843,7 @@ def handle_telegram_update(
         if step == "awaiting_niche":
             session_data["niche"] = text.strip()
             session_data["step"] = "awaiting_location"
+            _USER_WIZARD_SESSIONS[user_key] = session_data
             reply = (
                 f"✅ Target Niche: *{session_data['niche']}*\n\n"
                 f"📍 *Step 2/7: Target Location*\n"
@@ -2670,6 +2855,7 @@ def handle_telegram_update(
         elif step == "awaiting_location":
             session_data["location"] = text.strip()
             session_data["step"] = "awaiting_services"
+            _USER_WIZARD_SESSIONS[user_key] = session_data
             reply = (
                 f"✅ Location: *{session_data['location']}*\n\n"
                 f"💼 *Step 3/7: Services You Offer*\n"
@@ -2681,6 +2867,7 @@ def handle_telegram_update(
         elif step == "awaiting_services":
             session_data["services"] = text.strip()
             session_data["step"] = "awaiting_quantity"
+            _USER_WIZARD_SESSIONS[user_key] = session_data
             reply = (
                 f"✅ Services recorded!\n\n"
                 f"📊 *Step 4/7: Quantity of Leads*\n"
@@ -2696,6 +2883,7 @@ def handle_telegram_update(
                 qty_val = 50
             session_data["quantity"] = max(1, min(qty_val, 100))
             session_data["step"] = "awaiting_benchmark"
+            _USER_WIZARD_SESSIONS[user_key] = session_data
             reply = (
                 f"✅ Target quantity: *{session_data['quantity']} leads*\n\n"
                 f"⭐ *Step 5/7: Benchmark Qualification Score (0–100)*\n"
@@ -2716,6 +2904,7 @@ def handle_telegram_update(
             bench_score = max(0, min(score_val, 100))
             session_data["benchmark"] = bench_score
             session_data["step"] = "awaiting_template_choice"
+            _USER_WIZARD_SESSIONS[user_key] = session_data
 
             reply = (
                 f"✅ Benchmark score: *Score ≥ {bench_score}*\n\n"
@@ -2738,42 +2927,74 @@ def handle_telegram_update(
 
         elif step == "awaiting_template_choice":
             clean_ans = text.strip().lower()
-            use_best = clean_ans in ("yes", "y", "true", "1", "best", "template")
+            if clean_ans in ("yes", "y", "true", "1", "best", "template", "proven"):
+                use_best = True
+            elif clean_ans in ("no", "n", "false", "0", "ai", "personal", "personalized", "standard"):
+                use_best = False
+            else:
+                reply = (
+                    "⚠️ Please choose **YES** or **NO** for Question 6:\n\n"
+                    "• *Reply YES:* Use universal highest-response cold outreach message\n"
+                    "• *Reply NO:* Generate personalized AI pitches based on website audits\n\n"
+                    "_(Or click a button below)_"
+                )
+                buttons = [
+                    [
+                        {"text": "✅ Yes (Best-Response Template)", "callback_data": "wizard_template:yes"},
+                        {"text": "❌ No (Personalized AI Pitches)", "callback_data": "wizard_template:no"},
+                    ]
+                ]
+                return {"status": "in_progress", "reply": reply, "buttons": buttons}
+
             session_data["use_best_response_template"] = use_best
             session_data["step"] = "awaiting_followup_config"
+            _USER_WIZARD_SESSIONS[user_key] = session_data
 
             reply = (
                 f"✅ Outreach style recorded: *{'Best-Response Proven Hook' if use_best else 'Personalized AI Proposals'}*\n\n"
-                f"🔄 *Step 7/7: Automated Follow-Up Sequence*\n"
-                f"Configure automated follow-up emails for unresponsive prospects.\n\n"
-                f"💡 *Pre-configured Sequences:*\n"
-                f"• *Standard (3 Follow-ups):* Day 3, Day 6, Day 10 (Calendar days)\n"
-                f"• *Business Days (2 Follow-ups):* Day 2, Day 5 (Business days only)\n"
-                f"• *Custom Sequence:* Reply with custom delays, e.g.: `3, 7, 14`\n"
-                f"• *No Follow-Ups:* Send initial email only\n\n"
-                f"_(Select a preset button below or reply with custom delays like \"3, 6, 10\" or \"none\")_"
+                f"🔄 *Step 7/7: Follow-Up Configuration*\n"
+                f"How would you like to schedule automated follow-ups?\n\n"
+                f"💡 *Options:*\n"
+                f"1. *Standard* — Day 2 and Day 5 (Calendar days)\n"
+                f"2. *Business Days* — Day 3 and Day 7 (Business days only)\n"
+                f"3. *Single Touch* — No automated follow-ups\n"
+                f"4. *Custom* — Allow the operator to configure follow-up intervals\n\n"
+                f"_(Select an option below or reply with custom delays like \"2, 5, 9\" or \"none\")_"
             )
             buttons = [
                 [
-                    {"text": "⚡ Standard (Days 3, 6, 10)", "callback_data": "wizard_followup:standard"},
-                    {"text": "💼 Business Days (Days 2, 5)", "callback_data": "wizard_followup:biz_days"},
+                    {"text": "⚡ Standard (Days 2 & 5)", "callback_data": "wizard_followup:standard"},
+                    {"text": "💼 Business Days (Days 3 & 7)", "callback_data": "wizard_followup:biz_days"},
                 ],
                 [
-                    {"text": "🚫 No Follow-Ups (Initial Only)", "callback_data": "wizard_followup:none"},
+                    {"text": "🚫 Single Touch (No Follow-Ups)", "callback_data": "wizard_followup:none"},
+                    {"text": "✏️ Custom Intervals", "callback_data": "wizard_followup:custom"},
                 ]
             ]
             return {"status": "in_progress", "reply": reply, "buttons": buttons}
 
-        elif step == "awaiting_followup_config":
+        elif step in ("awaiting_followup_config", "awaiting_followup_custom"):
             valid, fu_config, err = parse_and_validate_followup_input(text)
             if not valid:
+                buttons = [
+                    [
+                        {"text": "⚡ Standard (Days 2 & 5)", "callback_data": "wizard_followup:standard"},
+                        {"text": "💼 Business Days (Days 3 & 7)", "callback_data": "wizard_followup:biz_days"},
+                    ],
+                    [
+                        {"text": "🚫 Single Touch (No Follow-Ups)", "callback_data": "wizard_followup:none"},
+                        {"text": "✏️ Custom Intervals", "callback_data": "wizard_followup:custom"},
+                    ]
+                ]
                 return {
                     "status": "in_progress",
-                    "reply": f"{err}\n\nPlease reply with valid delays (e.g. `3, 6, 10`) or `none`:",
+                    "reply": f"{err}\n\nPlease reply with valid delays (e.g. `2, 5` or `3, 7`) or click an option below:",
+                    "buttons": buttons,
                 }
 
             session_data["followup_sequence"] = fu_config
             session_data["step"] = "awaiting_followup_confirm"
+            _USER_WIZARD_SESSIONS[user_key] = session_data
             summary_card = format_followup_summary(session_data, fu_config)
             buttons = [
                 [
@@ -2789,18 +3010,25 @@ def handle_telegram_update(
             clean_ans = text.strip().lower()
             if any(w in clean_ans for w in ("change", "edit", "adjust", "back", "modify")):
                 session_data["step"] = "awaiting_followup_config"
+                _USER_WIZARD_SESSIONS[user_key] = session_data
                 reply = (
-                    "🔄 *Adjust Follow-Up Sequence*\n"
-                    "Please reply with your desired delay days (e.g. `3, 6, 10` or `none`):\n\n"
-                    "_(Delays must be strictly positive and increasing)_"
+                    "🔄 *Step 7/7: Follow-Up Configuration*\n"
+                    "How would you like to schedule automated follow-ups?\n\n"
+                    "💡 *Options:*\n"
+                    "1. *Standard* — Day 2 and Day 5 (Calendar days)\n"
+                    "2. *Business Days* — Day 3 and Day 7 (Business days only)\n"
+                    "3. *Single Touch* — No automated follow-ups\n"
+                    "4. *Custom* — Allow the operator to configure follow-up intervals\n\n"
+                    "_(Select an option below or reply with custom delays like \"2, 5, 9\" or \"none\")_"
                 )
                 buttons = [
                     [
-                        {"text": "⚡ Standard (Days 3, 6, 10)", "callback_data": "wizard_followup:standard"},
-                        {"text": "💼 Business Days (Days 2, 5)", "callback_data": "wizard_followup:biz_days"},
+                        {"text": "⚡ Standard (Days 2 & 5)", "callback_data": "wizard_followup:standard"},
+                        {"text": "💼 Business Days (Days 3 & 7)", "callback_data": "wizard_followup:biz_days"},
                     ],
                     [
-                        {"text": "🚫 No Follow-Ups", "callback_data": "wizard_followup:none"},
+                        {"text": "🚫 Single Touch (No Follow-Ups)", "callback_data": "wizard_followup:none"},
+                        {"text": "✏️ Custom Intervals", "callback_data": "wizard_followup:custom"},
                     ]
                 ]
                 return {"status": "in_progress", "reply": reply, "buttons": buttons}
