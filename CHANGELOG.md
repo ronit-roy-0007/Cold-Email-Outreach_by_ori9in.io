@@ -6,6 +6,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.1] - 2026-11-17
+
+### Added
+- **AI Draft Studio**: Operator-controlled individual lead draft studio embedded in the web dashboard (`/leads/{lead_id}`) with on-demand AI generation, independent subject & body editing, optimistic concurrency versioning, and PostgreSQL persistence.
+- **Unified Gemini Personalization Engine**: Upgraded `gemini_personalizer.py` to produce structured JSON output (`{"subject": "...", "body": "..."}`) shared across Telegram bot review cards and web dashboard draft studio.
+- **MessageDraft Subject & Version Schema**: Added Alembic migration `0005_add_draft_subject` adding `subject`, `version`, and `updated_at` columns to `message_drafts`.
+- **FastAPI Endpoints**: Implemented `POST /api/leads/{lead_id}/ai-generate`, `POST /api/leads/{lead_id}/ai-generate/regenerate`, `PUT /api/leads/{lead_id}/ai-draft`, and `GET /api/leads/{lead_id}/ai-draft`.
+- **Automated Verification Suite**: Added comprehensive test suite `apps/intelligence-api/tests/test_ai_draft_studio.py` testing mocked LLM generation, grounding, validation, optimistic concurrency conflict handling (409), rate limiting (429), and UI rendering.
+
+### Changed
+- **Lead Detail Web Interface**: Upgraded `lead_detail.html` with interactive AI Draft Studio card, real-time status badges, save spinners, and one-click copy utilities (`Copy Subject`, `Copy Email`, `Copy Full Email`).
+
+---
+
 ## [0.2.0] - 2026-11-17
 
 ### Added

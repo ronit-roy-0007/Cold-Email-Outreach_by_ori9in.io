@@ -118,48 +118,115 @@
       {% endif %}
     </div>
 
-    <!-- AI Personalized Email Draft Card -->
-    <div class="card" style="border-left: 4px solid var(--accent-lime);">
+    <!-- AI Draft Studio Card -->
+    <div class="card" id="ai-draft-studio-card" style="border-left: 4px solid var(--accent-lime);">
       <div class="card-header">
         <div class="card-title">
-          <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
-          <span>Gemini AI Personalized Message Draft</span>
+          <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+          <span>AI Draft Studio</span>
         </div>
-        <div style="display: flex; align-items: center; gap: 0.5rem;">
+        <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
           <span class="mono" style="font-size: 0.75rem; color: var(--text-muted);">
             Channel: <strong>{{ draft.channel if draft else 'EMAIL' }}</strong>
           </span>
-          {% if draft and draft.body %}
-            <button onclick="copyText(document.getElementById('draft-body-text').innerText, 'Draft copied')" class="btn btn-secondary btn-sm" style="padding: 0.2rem 0.5rem;">
-              Copy
-            </button>
-          {% endif %}
+          <span id="draft-status-badge" class="badge {% if draft and (draft.body or draft.subject) %}badge-approved{% else %}badge-neutral{% endif %}">
+            {% if draft and (draft.body or draft.subject) %}Saved (v{{ draft.version }}){% else %}No Saved Draft{% endif %}
+          </span>
         </div>
       </div>
 
-      {% if draft and draft.body %}
-        <div style="background-color: var(--bg-canvas); border: 1.5px solid var(--border-color); border-radius: 4px; padding: 1.25rem; margin-bottom: 1rem;">
-          <div class="mono" id="draft-body-text" style="font-size: 0.88rem; line-height: 1.65; white-space: pre-wrap; color: var(--text-main);">{{ draft.body }}</div>
+      <!-- Feature Description & Action Toolbar -->
+      <div style="margin-bottom: 1.25rem;">
+        <p style="font-size: 0.88rem; color: var(--text-muted); margin-bottom: 0.85rem; line-height: 1.5;">
+          Operator-controlled B2B email personalization powered by Google Gemini. Grounds email copy in verified website audit findings. Edit subject and body independently, regenerate on demand, and save changes to PostgreSQL.
+        </p>
+
+        <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+          <button id="btn-ai-generate" class="btn btn-primary" onclick="generateAiDraft('{{ lead.id }}', false)">
+            <span id="btn-generate-spinner" style="display: none;">⏳ </span>Generate with AI
+          </button>
+          <button id="btn-ai-regenerate" class="btn btn-secondary" onclick="generateAiDraft('{{ lead.id }}', true)" style="{% if not draft or not (draft.body or draft.subject) %}display: none;{% endif %}">
+            <span id="btn-regen-spinner" style="display: none;">⏳ </span>Regenerate
+          </button>
+          <button id="btn-save-draft" class="btn btn-primary" onclick="saveAiDraft('{{ lead.id }}')" style="{% if not draft or not (draft.body or draft.subject) %}display: none;{% endif %}">
+            <span id="btn-save-spinner" style="display: none;">💾 </span>Save Draft
+          </button>
+          
+          <div style="margin-left: auto; display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;" id="draft-copy-controls">
+            <button id="btn-copy-subject" class="btn btn-secondary btn-sm" onclick="copyDraftSubject()" style="{% if not draft or not (draft.body or draft.subject) %}display: none;{% endif %}" title="Copy Subject to Clipboard">
+              Copy Subject
+            </button>
+            <button id="btn-copy-body" class="btn btn-secondary btn-sm" onclick="copyDraftBody()" style="{% if not draft or not (draft.body or draft.subject) %}display: none;{% endif %}" title="Copy Email Body to Clipboard">
+              Copy Email
+            </button>
+            <button id="btn-copy-full" class="btn btn-secondary btn-sm" onclick="copyDraftFull()" style="{% if not draft or not (draft.body or draft.subject) %}display: none;{% endif %}" title="Copy Subject and Email Body to Clipboard">
+              Copy Full Email
+            </button>
+          </div>
         </div>
 
-        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; font-size: 0.78rem; color: var(--text-muted);">
+        <!-- Dynamic Status Alert Box -->
+        <div id="draft-alert" style="display: none; margin-top: 0.85rem; padding: 0.75rem 1rem; border-radius: 4px; font-size: 0.88rem; line-height: 1.45;"></div>
+      </div>
+
+      <!-- Editable Draft Fields -->
+      <div id="draft-editor-fields" style="{% if not draft or not (draft.body or draft.subject) %}display: none;{% endif %}">
+        <div class="form-group" style="margin-bottom: 1rem;">
+          <label for="draft-subject-input" class="form-label" style="display: flex; justify-content: space-between; align-items: center;">
+            <span>Email Subject</span>
+            <span class="micro-label" style="text-transform: none; color: var(--text-muted);">Curiosity-driven hook</span>
+          </label>
+          <input 
+            type="text" 
+            id="draft-subject-input" 
+            class="form-control" 
+            style="font-weight: 600; font-size: 0.95rem; background-color: var(--bg-canvas);" 
+            placeholder="e.g. Quick question regarding your website?" 
+            value="{{ draft.subject or '' }}"
+            oninput="handleDraftInput()"
+          />
+        </div>
+
+        <div class="form-group" style="margin-bottom: 1rem;">
+          <label for="draft-body-textarea" class="form-label" style="display: flex; justify-content: space-between; align-items: center;">
+            <span>Email Body</span>
+            <span class="micro-label" style="text-transform: none; color: var(--text-muted);">Concise 3-sentence proposition</span>
+          </label>
+          <textarea 
+            id="draft-body-textarea" 
+            class="form-control mono" 
+            rows="8" 
+            style="font-size: 0.88rem; line-height: 1.6; background-color: var(--bg-canvas); resize: vertical;" 
+            placeholder="AI generated email copy will appear here..."
+            oninput="handleDraftInput()"
+          >{{ draft.body or '' }}</textarea>
+        </div>
+
+        <!-- Hidden tracking inputs -->
+        <input type="hidden" id="draft-version" value="{{ draft.version if draft else 1 }}"/>
+        <input type="hidden" id="draft-has-unsaved" value="false"/>
+
+        <!-- Metadata & Safeguard Footnote -->
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; font-size: 0.78rem; color: var(--text-muted); border-top: 1px dashed var(--border-subtle); padding-top: 0.75rem;">
           <div>
             <span class="micro-label">Grounding Evidence Citations:</span>
-            <span class="mono">{{ draft.evidence_ids or 'Technical website gap analysis' }}</span>
+            <span class="mono">{{ draft.evidence_ids if draft else 'Technical website gap analysis' }}</span>
           </div>
           <div>
-            Status: <span class="badge badge-draft">{{ draft.status }}</span>
+            <span id="draft-meta-text">{% if draft and draft.updated_at %}Last saved: {{ draft.updated_at.strftime('%Y-%m-%d %H:%M UTC') }} (v{{ draft.version }}){% endif %}</span>
           </div>
         </div>
-      {% elif draft and draft.not_recommended_reason %}
-        <div style="background-color: #FEF3C7; border: 1.5px solid #F59E0B; border-radius: 4px; padding: 1rem; color: #92400E;">
+      </div>
+
+      {% if draft and draft.not_recommended_reason and not draft.body %}
+        <div style="background-color: #FEF3C7; border: 1.5px solid #F59E0B; border-radius: 4px; padding: 1rem; color: #92400E; margin-top: 0.75rem;">
           <strong>Draft Generation Suppressed:</strong> {{ draft.not_recommended_reason }}
         </div>
-      {% else %}
-        <div style="text-align: center; padding: 2rem; color: var(--text-muted);">
-          No AI message draft generated for this lead.
-        </div>
       {% endif %}
+
+      <div style="margin-top: 0.75rem; padding-top: 0.5rem; font-size: 0.75rem; color: var(--text-subtle);">
+        🔒 <em>Safeguard: Dry-run mode active. Generating or saving a draft does not send emails or approve the lead. Explicit operator approval (Gate 0) is still required.</em>
+      </div>
     </div>
 
     <!-- Reconnaissance Evidence & Technical Gaps Card -->
