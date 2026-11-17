@@ -218,9 +218,14 @@ class MessageDraft(Base):
     )
     channel: Mapped[str] = mapped_column(String, nullable=False, default="preview")
     status: Mapped[str] = mapped_column(String, nullable=False, default="preview")
+    subject: Mapped[str | None] = mapped_column(String, nullable=True)
     body: Mapped[str | None] = mapped_column(Text, nullable=True)
     not_recommended_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     evidence_ids: Mapped[Any] = mapped_column(JSON, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now
+    )
 
 
 class AuditLog(Base):

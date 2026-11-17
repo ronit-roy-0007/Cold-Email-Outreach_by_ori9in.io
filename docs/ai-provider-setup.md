@@ -72,3 +72,36 @@ For each discovered prospect, the intelligence engine:
    - Concludes with a low-friction call-to-action:
      *"Should I show you the demo how it works? Then we can talk further if you are interested."*
    - Signs off with your configured sender name.
+
+---
+
+## 7. AI Draft Studio (Manual Lead Personalization)
+
+IntentLead AI features an interactive, operator-controlled **AI Draft Studio** inside the individual lead detail view (`/leads/{lead_id}`).
+
+### Key Capabilities
+- **On-Demand Generation**: Click **"Generate with AI"** on any individual prospect. Generation is strictly on demand—opening a lead never triggers unauthorized LLM calls.
+- **Dual Output**: Simultaneously generates both a punchy, curiosity-driven **Subject Line** and a 3-sentence personalized **Email Body**.
+- **Independent Field Editing**: Operators can modify the subject line and email body in real time.
+- **Draft Versioning & Concurrency Protection**: Each draft increment tracks a monotonic `version` number. If multiple operators attempt to update the draft simultaneously, an optimistic concurrency conflict (HTTP 409) protects edits from being silently overwritten.
+- **PostgreSQL Persistence**: Clicking **"Save Draft"** commits the subject, body, version, and timestamp to the `message_drafts` table, surviving browser reloads and server restarts.
+- **Regeneration Safeguard**: If an operator has unsaved edits and clicks **"Regenerate"**, the UI prompts for confirmation before replacing the working draft with a fresh generation preview.
+- **Copy Controls**: One-click clipboard actions for **Copy Subject**, **Copy Email**, and **Copy Full Email**.
+
+### Architectural Separation of Outreach Modes
+
+IntentLead AI strictly isolates three distinct outreach modes:
+
+| Mode | Trigger | Scope | Personalization |
+|---|---|---|---|
+| **Path A: Universal High-Converting Template** | Telegram Step 6 = YES | Entire Campaign | Proven universal copy (Score ≥ 40 benchmark) |
+| **Path B: Automated Campaign Personalization** | Telegram Step 6 = NO / Pipeline | Entire Campaign | Background batch LLM generation per prospect audit |
+| **AI Draft Studio** | Web Dashboard "Generate with AI" button | Individual Selected Lead | On-demand interactive generation, editing & manual saving |
+
+### Strict Safety & Approval Invariants
+- **AI Generate NEVER sends an email.**
+- **Regenerate NEVER sends an email.**
+- **Save Draft NEVER sends an email.**
+- **Saving a draft NEVER automatically approves a lead.** Gate 0 human approval remains strictly enforced before any draft enters the dispatch engine.
+- `OUTREACH_DRY_RUN=True` remains active in all environments until explicit live deployment flags are toggled.
+

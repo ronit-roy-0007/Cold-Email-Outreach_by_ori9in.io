@@ -83,3 +83,5 @@ build/
 # Scraper Local Binaries & External Repositories
 google-maps-scraper/
 bin/
+
+*.zip

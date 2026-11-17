@@ -103,6 +103,16 @@ flowchart TD
   - Cryptographic signature / shared secret verification.
   - Strict HTML sanitization against XSS and script injection.
 
+### E. AI Personalization & Draft Studio (`app/services/gemini_personalizer.py` & `app/api/leads.py`)
+- **Unified Engine**: Shared by Telegram bot and Web Dashboard. Both interfaces consume the same structured JSON output (`{"subject": "...", "body": "..."}`).
+- **Endpoints**:
+  - `POST /api/leads/{lead_id}/ai-generate`: On-demand preview generation without DB mutation.
+  - `POST /api/leads/{lead_id}/ai-generate/regenerate`: Refreshed preview generation with unsaved-change safeguard.
+  - `PUT /api/leads/{lead_id}/ai-draft`: Optimistic concurrency persistence (`version += 1`) into PostgreSQL `message_drafts`.
+  - `GET /api/leads/{lead_id}/ai-draft`: Draft and version inspection endpoint.
+- **Auditing**: Every manual draft save writes an immutable audit record to `audit_logs` tracking actor, draft ID, subject, and version.
+- **Safety Invariant**: Manual generation and saving never trigger email dispatches or bypass Gate 0 human approval.
+
 ---
 
 ## 3. Lead Discovery & Qualification Workflow

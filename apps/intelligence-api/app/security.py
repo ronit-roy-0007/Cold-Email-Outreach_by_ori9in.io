@@ -48,6 +48,49 @@ def verify_api_key(
     return provided_key
 
 
+def verify_api_key_or_operator(
+    request: Request,
+    x_api_key: str | None = Header(None, alias="X-API-Key"),
+    authorization: str | None = Header(None),
+    settings: Settings = Depends(get_settings),
+) -> str:
+    """
+    Validates API key for external API clients, or authorizes same-origin operator
+    requests originating from the IntentLead AI web dashboard without exposing credentials to JS.
+    """
+    configured_key = (settings.API_KEY or "").strip()
+    if not configured_key:
+        return "development_anonymous"
+
+    provided_key = x_api_key
+    if not provided_key and authorization:
+        parts = authorization.split()
+        if len(parts) == 2 and parts[0].lower() == "bearer":
+            provided_key = parts[1]
+
+    if provided_key:
+        if hmac.compare_digest(provided_key.strip(), configured_key):
+            return provided_key
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing API key. Provide a valid 'X-API-Key' header or 'Bearer' token.",
+            headers={"WWW-Authenticate": "ApiKey"},
+        )
+
+    sec_fetch_site = request.headers.get("sec-fetch-site")
+    referer = request.headers.get("referer")
+    host = request.headers.get("host")
+
+    if sec_fetch_site in ("same-origin", "same-site") or (referer and host and host in referer):
+        return "web_operator"
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid or missing API key. Provide a valid 'X-API-Key' header or 'Bearer' token.",
+        headers={"WWW-Authenticate": "ApiKey"},
+    )
+
+
 # ==========================================
 # 2. Distributed & In-Memory Rate Limiter
 # ==========================================
