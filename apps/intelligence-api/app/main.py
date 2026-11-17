@@ -21,7 +21,7 @@ from app.config import get_settings, resolve_database_url, validate_production_s
 from app.db import engine, get_session
 from app.models import Base
 from app.providers.mock_scraper import mock_scraper_router
-from app.web.routes import web_router
+from app.web.routes import auth_router, web_router
 
 logger = logging.getLogger("intentlead.api")
 
@@ -31,7 +31,18 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     resolve_database_url(settings)
     validate_production_security(settings)
-    Base.metadata.create_all(bind=engine)
+    if settings.APP_ENV == "development":
+        Base.metadata.create_all(bind=engine)
+
+    # Idempotent operator bootstrap
+    try:
+        from app.db import SessionLocal
+        from app.services.auth import ensure_bootstrap_operator
+        with SessionLocal() as db:
+            ensure_bootstrap_operator(db, settings)
+    except Exception as exc:
+        logger.warning("Could not execute operator bootstrap during startup: %s", exc)
+
     yield
 
 
@@ -59,6 +70,18 @@ app.add_middleware(
 # 2. Request Timing & Observability Middleware
 @app.middleware("http")
 async def request_observability_middleware(request: Request, call_next):
+    # Reject oversized payloads early (DoS mitigation, max 2MB by default)
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            if int(content_length) > settings.MAX_REQUEST_BODY_BYTES:
+                return JSONResponse(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    content={"detail": f"Request body exceeds maximum allowed size ({settings.MAX_REQUEST_BODY_BYTES} bytes)."},
+                )
+        except ValueError:
+            pass
+
     start_time = time.time()
     try:
         response = await call_next(request)
@@ -117,6 +140,7 @@ def health_ready(db: Session = Depends(get_session)) -> dict[str, Any]:
 
 # 4. Register API Routers
 app.include_router(mock_scraper_router)
+app.include_router(auth_router)
 app.include_router(campaigns_router)
 app.include_router(inbound_router)
 app.include_router(leads_router)

@@ -22,12 +22,17 @@ def test_sqlite_rejected_when_not_development():
         resolve_database_url(s)
 
 
-def test_agency_identity_defaults_empty(monkeypatch):
+def test_agency_identity_defaults(monkeypatch):
     monkeypatch.delenv("AGENCY_NAME", raising=False)
     monkeypatch.delenv("AGENCY_SENDER_NAME", raising=False)
     s = Settings(_env_file=None)
-    assert s.AGENCY_NAME == ""
-    assert s.AGENCY_SENDER_NAME == ""
+    assert s.AGENCY_NAME == "IntentLead"
+    assert s.AGENCY_SENDER_NAME == "Outreach Team"
+
+    # Verify custom overrides are respected
+    s_custom = Settings(_env_file=None, AGENCY_NAME="My Agency", AGENCY_SENDER_NAME="Alex")
+    assert s_custom.AGENCY_NAME == "My Agency"
+    assert s_custom.AGENCY_SENDER_NAME == "Alex"
 
 
 def test_outreach_dry_run_defaults_true():

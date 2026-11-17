@@ -67,6 +67,14 @@ class Settings(BaseSettings):
     MAILGUN_WEBHOOK_SIGNING_KEY: str = ""
     REDIS_URL: str = ""
     TRUSTED_PROXIES: str = "127.0.0.1,::1"
+    BOOTSTRAP_OPERATOR_USERNAME: str = "admin"
+    BOOTSTRAP_OPERATOR_PASSWORD: str = ""
+    SESSION_COOKIE_NAME: str = "intentlead_session"
+    SESSION_SECRET_KEY: str = "intentlead-session-secret-change-in-production"
+    SESSION_MAX_AGE_SECONDS: int = 86400
+    LOGIN_RATE_LIMIT_MAX_ATTEMPTS: int = 5
+    LOGIN_RATE_LIMIT_WINDOW_SECONDS: int = 900
+    MAX_REQUEST_BODY_BYTES: int = 2097152
 
 
 def resolve_database_url(settings: Settings) -> str:

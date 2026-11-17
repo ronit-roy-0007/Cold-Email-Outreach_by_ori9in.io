@@ -111,10 +111,20 @@ UNSUBSCRIBE_SECRET=your_32_character_unsub_secret_here
 ```bash
 docker compose up -d --build
 ```
-Access the Web Dashboard at:
+
+### 4. Authenticate to the Operator Dashboard
+Navigate to:
 ```text
-http://localhost:8000
+http://localhost:8000/login
 ```
+- **Default Development Credentials**:
+  - Username: `admin`
+  - Password: `IntentLeadAdmin2026!`
+- **Production Setup**:
+  Configure `BOOTSTRAP_OPERATOR_PASSWORD` in your `.env` or provision via CLI:
+  ```bash
+  docker compose exec api python scripts/bootstrap_operator.py --username admin --password "YourSecurePassword!"
+  ```
 
 ---
 

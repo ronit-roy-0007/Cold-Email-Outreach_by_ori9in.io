@@ -542,44 +542,58 @@ def test_six_step_wizard_best_response_template(client, db_session, auth_setting
         "message": {"from": {"id": 123456789}, "text": "/findleads"}
     })
     assert res.status_code == 200
-    assert "Step 1/6" in res.json()["reply"]
+    assert "Step 1/7" in res.json()["reply"]
 
     # Step 2: Niche
     res = client.post("/api/orchestrator/webhooks/telegram", json={
         "message": {"from": {"id": 123456789}, "text": "Dental Clinics"}
     })
-    assert "Step 2/6" in res.json()["reply"]
+    assert "Step 2/7" in res.json()["reply"]
 
     # Step 3: Location
     res = client.post("/api/orchestrator/webhooks/telegram", json={
         "message": {"from": {"id": 123456789}, "text": "Dallas, Texas"}
     })
-    assert "Step 3/6" in res.json()["reply"]
+    assert "Step 3/7" in res.json()["reply"]
 
     # Step 4: Services
     res = client.post("/api/orchestrator/webhooks/telegram", json={
         "message": {"from": {"id": 123456789}, "text": "website development and SEO"}
     })
-    assert "Step 4/6" in res.json()["reply"]
+    assert "Step 4/7" in res.json()["reply"]
 
     # Step 5: Quantity
     res = client.post("/api/orchestrator/webhooks/telegram", json={
         "message": {"from": {"id": 123456789}, "text": "5"}
     })
-    assert "Step 5/6" in res.json()["reply"]
+    assert "Step 5/7" in res.json()["reply"]
 
-    # Step 6: Benchmark Score -> triggers Step 6/6 template prompt
+    # Step 6: Benchmark Score -> triggers Step 6/7 template prompt
     res = client.post("/api/orchestrator/webhooks/telegram", json={
         "message": {"from": {"id": 123456789}, "text": "60"}
     })
     data = res.json()
-    assert "Step 6/6" in data["reply"]
+    assert "Step 6/7" in data["reply"]
     assert "Where should we go from here?" in data["reply"]
     assert any(btn["callback_data"] == "wizard_template:yes" for row in data["buttons"] for btn in row)
 
-    # Answer YES via button callback
-    res_launch = client.post("/api/orchestrator/webhooks/telegram", json={
+    # Answer YES via button callback -> advances to Question 7/7
+    res_q7 = client.post("/api/orchestrator/webhooks/telegram", json={
         "callback_query": {"from": {"id": 123456789}, "data": "wizard_template:yes"}
+    })
+    assert res_q7.status_code == 200
+    assert "Step 7/7" in res_q7.json()["reply"]
+
+    # Select standard follow-up
+    res_conf = client.post("/api/orchestrator/webhooks/telegram", json={
+        "callback_query": {"from": {"id": 123456789}, "data": "wizard_followup:standard"}
+    })
+    assert res_conf.status_code == 200
+    assert "Confirm Campaign & Follow-Up Architecture" in res_conf.json()["reply"]
+
+    # Confirm and launch
+    res_launch = client.post("/api/orchestrator/webhooks/telegram", json={
+        "callback_query": {"from": {"id": 123456789}, "data": "wizard_confirm:yes"}
     })
     assert res_launch.status_code == 200
     launch_data = res_launch.json()
@@ -620,11 +634,24 @@ def test_six_step_wizard_personalized_choice(client, db_session, auth_settings):
 
     # Step 6 prompt
     res = client.post("/api/orchestrator/webhooks/telegram", json={"message": {"from": {"id": 123456789}, "text": "60"}})
-    assert "Step 6/6" in res.json()["reply"]
+    assert "Step 6/7" in res.json()["reply"]
 
-    # Answer NO via button callback
-    res_launch = client.post("/api/orchestrator/webhooks/telegram", json={
+    # Answer NO via button callback -> advances to Question 7/7
+    res_q7 = client.post("/api/orchestrator/webhooks/telegram", json={
         "callback_query": {"from": {"id": 123456789}, "data": "wizard_template:no"}
+    })
+    assert res_q7.status_code == 200
+    assert "Step 7/7" in res_q7.json()["reply"]
+
+    # Select standard follow-up
+    res_conf = client.post("/api/orchestrator/webhooks/telegram", json={
+        "callback_query": {"from": {"id": 123456789}, "data": "wizard_followup:standard"}
+    })
+    assert res_conf.status_code == 200
+
+    # Confirm and launch
+    res_launch = client.post("/api/orchestrator/webhooks/telegram", json={
+        "callback_query": {"from": {"id": 123456789}, "data": "wizard_confirm:yes"}
     })
     assert res_launch.status_code == 200
     launch_data = res_launch.json()

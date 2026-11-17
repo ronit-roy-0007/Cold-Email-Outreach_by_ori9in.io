@@ -15,6 +15,10 @@ Security is a primary design tenet of IntentLead AI. The application implements 
 | **SQL Injection** | SQL payload injection via lead search queries, filters, or webhook identifiers. | 100% SQLAlchemy ORM parameterized queries. Raw string concatenation is strictly prohibited across all database models and routes. |
 | **IP Spoofing / Rate Limit Bypass** | Attacker spoofs `X-Forwarded-For` headers to bypass rate limits or impersonate trusted proxies. | `app/security.py`: Reverse-proxy IP validation. `X-Forwarded-For` is only honored if the immediate peer IP matches `TRUSTED_PROXIES`. |
 | **Credential Leakage in Logs** | Sensitive tokens (Telegram bot token, LLM keys, webhook secrets) printed in logs or tracebacks. | `mask_sensitive` sanitization in poller, suppression of HTTP client INFO logs (`httpx`/`httpcore`), and automated secret-scanning regression tests. |
+| **Unauthorized Dashboard Access** | Unauthorized network users browsing to the web dashboard on port 8000. | `app/security.py`: Mandatory `require_operator` dependency on all dashboard routes. Unauthenticated requests redirect to `/login` with HttpOnly, SameSite=Lax, and Secure session cookies. |
+| **Credential Brute-Force** | Adversary attempts dictionary or brute-force attacks against operator credentials. | `app/services/auth.py`: Cryptographic PBKDF2-HMAC-SHA256 password hashing (600,000 iterations, 16-byte random salt, constant-time compare) and sliding-window rate limiting (max 5 failed attempts per 15 minutes per IP, returning HTTP 429). |
+| **Cross-Site Request Forgery (CSRF)** | Malicious third-party site tricks operator browser into executing state-changing actions. | Session-bound HMAC-SHA256 CSRF tokens validated against operator sessions on state-changing requests. |
+| **DoS via Payload Flooding** | Attacker floods the API with large payloads to exhaust memory or worker buffers. | Request body size limit middleware enforcing max 2MB (`MAX_REQUEST_BODY_BYTES`) with immediate HTTP 413 rejection. |
 
 ---
 
@@ -22,7 +26,9 @@ Security is a primary design tenet of IntentLead AI. The application implements 
 
 When deploying to production (`APP_ENV=production`), the application enforces:
 1. `FIELD_ENCRYPTION_KEY` must be configured with a 32-byte Fernet key.
-2. `CORS_ORIGINS` must not be wildcard `*`.
-3. `UNSUBSCRIBE_SECRET` must be set to a unique, cryptographically strong secret.
-4. Database and Redis ports are bound exclusively to Docker's internal network or `127.0.0.1`.
-5. Container runs as unprivileged user `appuser` (UID `10001`).
+2. `API_KEY` must be configured with at least 16 characters and cannot be a default placeholder.
+3. `CORS_ORIGINS` must not be wildcard `*`.
+4. `UNSUBSCRIBE_SECRET` must be set to a unique, cryptographically strong secret.
+5. Database and Redis ports are bound exclusively to Docker's internal network or `127.0.0.1`.
+6. Container runs as unprivileged user `appuser` (UID `10001`).
+7. Operator credentials must be bootstrapped via `BOOTSTRAP_OPERATOR_PASSWORD` or CLI.

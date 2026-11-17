@@ -3,11 +3,12 @@ from __future__ import annotations
 import csv
 from datetime import datetime, timezone
 import io
+import logging
 from pathlib import Path
 from typing import Any
 import uuid
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -31,11 +32,22 @@ from app.models import (
     MailboxAccount,
     MessageDraft,
     OperatorProfile,
+    OperatorUser,
     OutboundMessage,
     ScrapeJob,
     ServiceScore,
     SuppressionEntry,
     utc_now,
+)
+from app.security import extract_client_ip, get_current_operator, require_operator
+from app.services.auth import (
+    create_operator_session,
+    destroy_operator_session,
+    generate_csrf_token,
+    is_ip_rate_limited,
+    record_login_failure,
+    record_login_success,
+    verify_password,
 )
 from app.services.campaigns import create_campaign, get_campaign, list_campaigns
 from app.services.crypto import encrypt_credential
@@ -45,16 +57,161 @@ from app.services.pipeline import run_campaign
 from app.services.social import get_business_social_links, get_lead_messages, sanitize_website
 from app.services.telegram_bot import record_approval
 
+logger = logging.getLogger("intentlead.web")
+
 templates_dir = Path(__file__).resolve().parent / "templates"
 templates = Jinja2Templates(directory=str(templates_dir))
 templates.env.globals.update({"min": min, "max": max})
 
-web_router = APIRouter(tags=["web"])
+auth_router = APIRouter(tags=["auth"])
+web_router = APIRouter(tags=["web"], dependencies=[Depends(require_operator)])
 
 
-def get_common_context(db: Session, active_nav: str, settings: Settings) -> dict[str, Any]:
+def _sanitize_next_url(next_url: str | None) -> str:
+    if not next_url:
+        return "/"
+    clean = next_url.strip()
+    if not clean.startswith("/") or clean.startswith("//") or "\\" in clean:
+        return "/"
+    return clean
+
+
+# ==============================================================================
+# AUTHENTICATION ROUTES (PUBLIC)
+# ==============================================================================
+
+@auth_router.get("/login", response_class=HTMLResponse)
+def login_page(
+    request: Request,
+    next: str | None = None,
+    db: Session = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+):
+    user = get_current_operator(request, db, settings)
+    if user:
+        return RedirectResponse(url=_sanitize_next_url(next), status_code=status.HTTP_303_SEE_OTHER)
+    return templates.TemplateResponse(
+        request=request,
+        name="login.html",
+        context={
+            "error": None,
+            "next_url": _sanitize_next_url(next),
+            "username": "",
+        },
+    )
+
+
+@auth_router.post("/login")
+def login_action(
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...),
+    next: str = Form("/"),
+    db: Session = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+):
+    client_ip = extract_client_ip(request, settings.TRUSTED_PROXIES)
+
+    if is_ip_rate_limited(
+        client_ip,
+        settings.LOGIN_RATE_LIMIT_MAX_ATTEMPTS,
+        settings.LOGIN_RATE_LIMIT_WINDOW_SECONDS,
+    ):
+        logger.warning("Login rate limit exceeded for IP %s", client_ip)
+        return templates.TemplateResponse(
+            request=request,
+            name="login.html",
+            context={
+                "error": "Too many failed login attempts. Please wait 15 minutes before trying again.",
+                "next_url": _sanitize_next_url(next),
+                "username": username,
+            },
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        )
+
+    clean_user = username.strip()
+    operator = db.query(OperatorUser).filter_by(username=clean_user, is_active=True).first()
+
+    if not operator or not verify_password(password, operator.password_hash):
+        record_login_failure(client_ip)
+        logger.warning("Failed login attempt for operator user '%s' from %s", clean_user, client_ip)
+        return templates.TemplateResponse(
+            request=request,
+            name="login.html",
+            context={
+                "error": "Invalid username or password.",
+                "next_url": _sanitize_next_url(next),
+                "username": username,
+            },
+            status_code=status.HTTP_401_UNAUTHORIZED,
+        )
+
+    record_login_success(client_ip)
+    session_rec, raw_token = create_operator_session(
+        db=db,
+        user=operator,
+        request=request,
+        max_age_seconds=settings.SESSION_MAX_AGE_SECONDS,
+    )
+    csrf_token = generate_csrf_token(raw_token, settings.SESSION_SECRET_KEY)
+
+    redirect_target = _sanitize_next_url(next)
+    response = RedirectResponse(url=redirect_target, status_code=status.HTTP_303_SEE_OTHER)
+
+    is_prod = settings.APP_ENV == "production"
+    response.set_cookie(
+        key=settings.SESSION_COOKIE_NAME,
+        value=raw_token,
+        max_age=settings.SESSION_MAX_AGE_SECONDS,
+        httponly=True,
+        samesite="lax",
+        secure=is_prod,
+        path="/",
+    )
+    response.set_cookie(
+        key="intentlead_csrf",
+        value=csrf_token,
+        max_age=settings.SESSION_MAX_AGE_SECONDS,
+        httponly=False,
+        samesite="lax",
+        secure=is_prod,
+        path="/",
+    )
+    logger.info("Operator '%s' logged in successfully from %s", clean_user, client_ip)
+    return response
+
+
+@auth_router.post("/logout")
+@auth_router.get("/logout")
+def logout_action(
+    request: Request,
+    db: Session = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+):
+    raw_token = request.cookies.get(settings.SESSION_COOKIE_NAME)
+    if raw_token:
+        destroy_operator_session(db, raw_token)
+
+    response = RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+    response.delete_cookie(settings.SESSION_COOKIE_NAME, path="/")
+    response.delete_cookie("intentlead_csrf", path="/")
+    return response
+
+
+def get_common_context(
+    db: Session,
+    active_nav: str,
+    settings: Settings,
+    request: Request | None = None,
+) -> dict[str, Any]:
     pending_count = db.query(Lead).filter_by(outreach_status="draft").count()
     unread_inbox_count = db.query(func.coalesce(func.sum(Conversation.unread_count), 0)).scalar()
+    operator = getattr(request.state, "operator_user", None) if (request and hasattr(request, "state")) else None
+    raw_token = getattr(request.state, "raw_token", None) if (request and hasattr(request, "state")) else None
+    csrf_token = ""
+    if raw_token:
+        csrf_token = generate_csrf_token(raw_token, settings.SESSION_SECRET_KEY)
+
     return {
         "active_nav": active_nav,
         "pending_count": pending_count,
@@ -63,6 +220,8 @@ def get_common_context(db: Session, active_nav: str, settings: Settings) -> dict
         "app_env": settings.APP_ENV,
         "agency_name": settings.AGENCY_NAME,
         "sender_name": settings.AGENCY_SENDER_NAME,
+        "operator_user": operator,
+        "csrf_token": csrf_token,
     }
 
 
@@ -77,7 +236,7 @@ def overview_dashboard(
     db: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
 ):
-    ctx = get_common_context(db, "overview", settings)
+    ctx = get_common_context(db, "overview", settings, request=request)
 
     # Core Metrics
     total_businesses = db.query(Business).count()
@@ -145,7 +304,7 @@ def leads_directory(
     db: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
 ):
-    ctx = get_common_context(db, "leads", settings)
+    ctx = get_common_context(db, "leads", settings, request=request)
 
     query = db.query(Lead, Business, Campaign).join(Business, Lead.business_id == Business.id).join(Campaign, Lead.campaign_id == Campaign.id)
 
@@ -193,7 +352,7 @@ def lead_detail_view(
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
 
-    ctx = get_common_context(db, "leads", settings)
+    ctx = get_common_context(db, "leads", settings, request=request)
     biz = db.get(Business, lead.business_id)
     campaign = db.get(Campaign, lead.campaign_id)
     dims = db.query(DimensionScore).filter_by(lead_id=lead_id).all()
@@ -233,7 +392,7 @@ def approval_center(
     db: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
 ):
-    ctx = get_common_context(db, "approvals", settings)
+    ctx = get_common_context(db, "approvals", settings, request=request)
 
     query = (
         db.query(Lead, Business, Campaign, MessageDraft)
@@ -287,7 +446,7 @@ def campaigns_list_view(
     db: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
 ):
-    ctx = get_common_context(db, "campaigns", settings)
+    ctx = get_common_context(db, "campaigns", settings, request=request)
     campaigns = db.query(Campaign).order_by(desc(Campaign.created_at)).all()
 
     # Pre-calculate lead statistics per campaign
@@ -316,7 +475,7 @@ def new_campaign_form(
     db: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
 ):
-    ctx = get_common_context(db, "campaigns", settings)
+    ctx = get_common_context(db, "campaigns", settings, request=request)
     return templates.TemplateResponse(request=request, name="campaign_new.html", context=ctx)
 
 
@@ -361,7 +520,7 @@ def campaign_detail_view(
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
 
-    ctx = get_common_context(db, "campaigns", settings)
+    ctx = get_common_context(db, "campaigns", settings, request=request)
     leads = (
         db.query(Lead, Business)
         .join(Business, Lead.business_id == Business.id)
@@ -459,7 +618,7 @@ def mailboxes_view(
     db: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
 ):
-    ctx = get_common_context(db, "mailboxes", settings)
+    ctx = get_common_context(db, "mailboxes", settings, request=request)
     mailboxes = db.query(MailboxAccount).order_by(MailboxAccount.created_at).all()
     today_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
@@ -517,7 +676,7 @@ def analytics_view(
     db: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
 ):
-    ctx = get_common_context(db, "analytics", settings)
+    ctx = get_common_context(db, "analytics", settings, request=request)
 
     total_businesses = db.query(Business).count()
     total_leads = db.query(Lead).count()
@@ -586,7 +745,7 @@ def suppression_view(
     db: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
 ):
-    ctx = get_common_context(db, "suppression", settings)
+    ctx = get_common_context(db, "suppression", settings, request=request)
     query = db.query(SuppressionEntry)
 
     if q and q.strip():
@@ -630,7 +789,7 @@ def activity_view(
     db: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
 ):
-    ctx = get_common_context(db, "activity", settings)
+    ctx = get_common_context(db, "activity", settings, request=request)
     logs = db.query(AuditLog).order_by(desc(AuditLog.created_at)).limit(100).all()
     approvals = (
         db.query(Approval, Lead, Business)
@@ -659,7 +818,7 @@ def settings_view(
     db: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
 ):
-    ctx = get_common_context(db, "settings", settings)
+    ctx = get_common_context(db, "settings", settings, request=request)
     profile = db.query(OperatorProfile).first()
 
     ctx.update({
@@ -686,7 +845,7 @@ def inbox_view(
     db: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
 ):
-    ctx = get_common_context(db, "inbox", settings)
+    ctx = get_common_context(db, "inbox", settings, request=request)
     campaigns = db.query(Campaign).order_by(desc(Campaign.created_at)).all()
 
     total_convs = db.query(Conversation).count()

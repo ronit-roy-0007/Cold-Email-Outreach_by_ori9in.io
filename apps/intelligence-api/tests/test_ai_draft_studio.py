@@ -42,9 +42,14 @@ def auth_settings():
 
 @pytest.fixture
 def client(db_session, auth_settings):
+    from app.services.auth import ensure_bootstrap_operator, create_operator_session
+    operator = ensure_bootstrap_operator(db_session, auth_settings)
+    session_rec, raw_token = create_operator_session(db_session, operator, max_age_seconds=86400)
+
     app.dependency_overrides[get_session] = lambda: db_session
     app.dependency_overrides[get_settings] = lambda: auth_settings
     with TestClient(app) as test_client:
+        test_client.cookies.set(auth_settings.SESSION_COOKIE_NAME, raw_token)
         yield test_client
     app.dependency_overrides.clear()
 
@@ -310,9 +315,10 @@ def test_ai_generate_non_json_fallback_parsing(client, sample_lead, monkeypatch)
 # 2. Authentication & Authorization Tests
 # ==============================================================================
 
-def test_ai_endpoints_api_key_authentication(client, sample_lead, auth_settings, monkeypatch):
+def test_ai_endpoints_api_key_authentication(client, sample_lead, auth_settings, db_session, monkeypatch):
     lead, _, _, _ = sample_lead
     auth_settings.API_KEY = "sec-token-prod-987"
+    client.cookies.clear()
 
     # 1. Unauthenticated request fails closed with 401
     res = client.post(f"/api/leads/{lead.id}/ai-generate")
@@ -323,7 +329,7 @@ def test_ai_endpoints_api_key_authentication(client, sample_lead, auth_settings,
     res = client.post(f"/api/leads/{lead.id}/ai-generate", headers={"X-API-Key": "wrong-key"})
     assert res.status_code == 401
 
-    # 3. Same-origin web operator request is authorized without exposing API key
+    # 3. Authenticated operator session is authorized without exposing API key
     class MockResp:
         def read(self):
             return json.dumps({
@@ -334,13 +340,16 @@ def test_ai_endpoints_api_key_authentication(client, sample_lead, auth_settings,
 
     monkeypatch.setattr(urllib.request, "urlopen", lambda r, timeout=None: MockResp())
 
-    res = client.post(
-        f"/api/leads/{lead.id}/ai-generate",
-        headers={"Sec-Fetch-Site": "same-origin"}
-    )
+    from app.services.auth import create_operator_session, ensure_bootstrap_operator
+    op_user = ensure_bootstrap_operator(db_session, auth_settings)
+    _, op_token = create_operator_session(db_session, op_user)
+    client.cookies.set(auth_settings.SESSION_COOKIE_NAME, op_token)
+
+    res = client.post(f"/api/leads/{lead.id}/ai-generate")
     assert res.status_code == 200
 
-    # 4. Valid X-API-Key header is authorized
+    # 4. Valid X-API-Key header is authorized without session cookie
+    client.cookies.clear()
     res = client.post(
         f"/api/leads/{lead.id}/ai-generate",
         headers={"X-API-Key": "sec-token-prod-987"}
