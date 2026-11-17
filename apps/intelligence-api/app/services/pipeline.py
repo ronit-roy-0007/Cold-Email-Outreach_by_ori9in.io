@@ -202,14 +202,17 @@ def run_campaign(
         return campaign
 
     if scraper is None:
-        if campaign.provider == "scrapling":
+        eff_provider = campaign.provider or settings.DISCOVERY_PROVIDER
+        if settings.DISCOVERY_PROVIDER == "scrapling" and eff_provider in ("mock", None):
+            eff_provider = "scrapling"
+        if eff_provider == "scrapling":
             from app.providers.scrapling_client import ScraplingClient
             scraper = ScraplingClient()
         else:
             scraper = ScraperClient(
                 base_url=settings.GOOGLE_MAPS_SCRAPER_BASE_URL,
                 token=settings.GOOGLE_MAPS_SCRAPER_API_TOKEN,
-                provider=campaign.provider,
+                provider=eff_provider,
             )
 
     try:

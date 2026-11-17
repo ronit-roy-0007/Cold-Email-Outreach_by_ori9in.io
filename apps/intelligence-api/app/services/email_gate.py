@@ -69,34 +69,17 @@ def check_domain_mx(domain: str, resolver_fn: Callable[[str], list[str]] | None 
                 _MX_CACHE[clean_domain] = res
                 return res
         except (dns.resolver.NoAnswer, dns.resolver.NoNameservers):
-            pass
-
-        # Fallback to A record (RFC 5321 implicit MX fallback)
-        try:
-            a_answers = custom_resolver.resolve(clean_domain, "A")
-            if a_answers:
-                _MX_CACHE[clean_domain] = (True, None)
-                return True, None
-        except Exception:
-            pass
-
-        res = (False, f"Domain '{clean_domain}' has no valid MX or A DNS records")
-        _MX_CACHE[clean_domain] = res
-        return res
+            res = (False, f"Domain '{clean_domain}' has no MX DNS records")
+            _MX_CACHE[clean_domain] = res
+            return res
     except dns.resolver.NXDOMAIN:
         res = (False, f"Domain '{clean_domain}' does not exist (NXDOMAIN)")
         _MX_CACHE[clean_domain] = res
         return res
     except Exception as exc:
-        # Fallback to standard library socket lookup
-        try:
-            socket.gethostbyname(clean_domain)
-            _MX_CACHE[clean_domain] = (True, None)
-            return True, None
-        except Exception:
-            res = (False, f"DNS resolution failed for '{clean_domain}': {exc}")
-            _MX_CACHE[clean_domain] = res
-            return res
+        res = (False, f"DNS MX resolution failed for '{clean_domain}': {exc}")
+        _MX_CACHE[clean_domain] = res
+        return res
 
 
 def preflight_deliverability_gate(
