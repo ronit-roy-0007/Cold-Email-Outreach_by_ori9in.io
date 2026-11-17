@@ -237,14 +237,14 @@ def run_campaign(
             # In large metros, explore directional sectors on subsequent attempts to discover fresh businesses
             if attempt == 1:
                 attempt_loc = search_location
-            elif attempt == 2:
-                attempt_loc = f"Central {search_location}"
-            elif attempt == 3:
-                attempt_loc = f"North {search_location}"
-            elif attempt == 4:
-                attempt_loc = f"South {search_location}"
             else:
-                attempt_loc = f"West {search_location}"
+                prefixes = ["Central", "North", "South", "East", "West"]
+                clean_loc = search_location
+                for p in prefixes:
+                    if clean_loc.lower().startswith(p.lower() + " "):
+                        clean_loc = clean_loc[len(p) + 1:].strip()
+                prefix = prefixes[(attempt - 2) % len(prefixes)]
+                attempt_loc = f"{prefix} {clean_loc}"
 
             external_job_id = scraper.create_job(
                 campaign.niche,
