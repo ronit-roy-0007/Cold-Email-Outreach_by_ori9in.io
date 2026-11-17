@@ -117,15 +117,20 @@ def test_login_page_renders_form(clean_client):
     assert "Operator Authentication" in res.text
     assert 'name="username"' in res.text
     assert 'name="password"' in res.text
+    assert 'name="csrf_token"' in res.text
+    assert "intentlead_login_csrf" in res.cookies
 
 
 def test_login_invalid_credentials_rejected(clean_client, db_session, auth_settings):
     ensure_bootstrap_operator(db_session, auth_settings)
 
-    # Wrong password
+    page_res = clean_client.get("/login")
+    csrf_token = page_res.cookies["intentlead_login_csrf"]
+
+    # Wrong password with valid CSRF token passes CSRF check and fails credential verification
     res = clean_client.post(
         "/login",
-        data={"username": "test_admin", "password": "WrongPassword!"},
+        data={"username": "test_admin", "password": "WrongPassword!", "csrf_token": csrf_token},
     )
     assert res.status_code == 401
     assert "Invalid username or password" in res.text
@@ -135,9 +140,12 @@ def test_login_invalid_credentials_rejected(clean_client, db_session, auth_setti
 def test_login_success_sets_session_cookies_and_redirects(clean_client, db_session, auth_settings):
     ensure_bootstrap_operator(db_session, auth_settings)
 
+    page_res = clean_client.get("/login")
+    csrf_token = page_res.cookies["intentlead_login_csrf"]
+
     res = clean_client.post(
         "/login",
-        data={"username": "test_admin", "password": "SuperSecretPassword2026!", "next": "/leads"},
+        data={"username": "test_admin", "password": "SuperSecretPassword2026!", "next": "/leads", "csrf_token": csrf_token},
     )
     assert res.status_code == 303
     assert res.headers["location"] == "/leads"
@@ -146,6 +154,9 @@ def test_login_success_sets_session_cookies_and_redirects(clean_client, db_sessi
     assert auth_settings.SESSION_COOKIE_NAME in res.cookies
     assert "intentlead_csrf" in res.cookies
 
+    # Pre-session login CSRF cookie must be deleted
+    assert "intentlead_login_csrf" not in res.cookies or res.cookies["intentlead_login_csrf"] == '""'
+
     # Following with the session cookie grants access to protected routes
     cookie_val = res.cookies[auth_settings.SESSION_COOKIE_NAME]
     clean_client.cookies.set(auth_settings.SESSION_COOKIE_NAME, cookie_val)
@@ -153,6 +164,106 @@ def test_login_success_sets_session_cookies_and_redirects(clean_client, db_sessi
     dash_res = clean_client.get("/leads")
     assert dash_res.status_code == 200
     assert "Lead Intelligence" in dash_res.text
+
+
+# ==============================================================================
+# 4b. Mandatory Login CSRF Protection Tests (5 Scenarios)
+# ==============================================================================
+
+def test_login_csrf_missing_cookie_rejected_403(clean_client):
+    """Scenario 1: Missing login CSRF cookie -> 403 Forbidden."""
+    clean_client.cookies.clear()
+    res = clean_client.post(
+        "/login",
+        data={"username": "test_admin", "password": "AnyPassword123!", "csrf_token": "token-without-cookie"},
+    )
+    assert res.status_code == 403
+    assert "Security validation failed" in res.text
+
+
+def test_login_csrf_missing_submitted_token_rejected_403(clean_client):
+    """Scenario 2: Missing submitted CSRF token -> 403 Forbidden."""
+    page_res = clean_client.get("/login")
+    assert "intentlead_login_csrf" in page_res.cookies
+
+    # Post with cookie present but omitted csrf_token
+    res_omitted = clean_client.post(
+        "/login",
+        data={"username": "test_admin", "password": "AnyPassword123!"},
+    )
+    assert res_omitted.status_code == 403
+    assert "Security validation failed" in res_omitted.text
+
+    # Post with cookie present but empty csrf_token
+    res_empty = clean_client.post(
+        "/login",
+        data={"username": "test_admin", "password": "AnyPassword123!", "csrf_token": "   "},
+    )
+    assert res_empty.status_code == 403
+    assert "Security validation failed" in res_empty.text
+
+
+def test_login_csrf_incorrect_submitted_token_rejected_403(clean_client):
+    """Scenario 3: Incorrect submitted token -> 403 Forbidden."""
+    page_res = clean_client.get("/login")
+    assert "intentlead_login_csrf" in page_res.cookies
+
+    res = clean_client.post(
+        "/login",
+        data={
+            "username": "test_admin",
+            "password": "AnyPassword123!",
+            "csrf_token": "attacker-forged-or-mismatched-token",
+        },
+    )
+    assert res.status_code == 403
+    assert "Security validation failed" in res.text
+
+
+def test_login_csrf_valid_matching_token_proceeds_through_auth(clean_client, db_session, auth_settings):
+    """Scenario 4: Valid matching cookie and submitted token -> proceeds through authentication."""
+    ensure_bootstrap_operator(db_session, auth_settings)
+    page_res = clean_client.get("/login")
+    valid_csrf = page_res.cookies["intentlead_login_csrf"]
+
+    # 4a. With invalid credentials -> passes CSRF check, fails with 401 Unauthorized
+    res_invalid = clean_client.post(
+        "/login",
+        data={"username": "test_admin", "password": "WrongPassword!", "csrf_token": valid_csrf},
+    )
+    assert res_invalid.status_code == 401
+    assert "Invalid username or password" in res_invalid.text
+
+    # 4b. With valid credentials -> passes CSRF check, authenticates, 303 Redirects
+    res_valid = clean_client.post(
+        "/login",
+        data={"username": "test_admin", "password": "SuperSecretPassword2026!", "csrf_token": valid_csrf},
+    )
+    assert res_valid.status_code == 303
+    assert res_valid.headers["location"] == "/"
+
+    # 4c. Via X-CSRF-Token header also works
+    clean_client.cookies.clear()
+    page_res2 = clean_client.get("/login")
+    csrf2 = page_res2.cookies["intentlead_login_csrf"]
+    res_header = clean_client.post(
+        "/login",
+        data={"username": "test_admin", "password": "SuperSecretPassword2026!"},
+        headers={"X-CSRF-Token": csrf2},
+    )
+    assert res_header.status_code == 303
+
+
+def test_login_page_creates_presession_csrf_cookie(clean_client):
+    """Scenario 5: GET /login creates pre-session CSRF cookie (intentlead_login_csrf)."""
+    clean_client.cookies.clear()
+    res = clean_client.get("/login")
+    assert res.status_code == 200
+    assert "intentlead_login_csrf" in res.cookies
+    token = res.cookies["intentlead_login_csrf"]
+    assert len(token) >= 32
+    # Verify embedded in form field
+    assert f'value="{token}"' in res.text
 
 
 def test_logout_invalidates_session_and_clears_cookies(clean_client, db_session, auth_settings):
@@ -194,18 +305,21 @@ def test_login_rate_limiting(clean_client, db_session, auth_settings):
     ensure_bootstrap_operator(db_session, auth_settings)
     _LOGIN_ATTEMPTS.clear()
 
-    # Perform 5 failed attempts
+    page_res = clean_client.get("/login")
+    csrf_token = page_res.cookies["intentlead_login_csrf"]
+
+    # Perform 5 failed attempts with valid CSRF token
     for _ in range(5):
         res = clean_client.post(
             "/login",
-            data={"username": "test_admin", "password": "bad_password"},
+            data={"username": "test_admin", "password": "bad_password", "csrf_token": csrf_token},
         )
         assert res.status_code == 401
 
     # 6th attempt must be blocked with HTTP 429 Too Many Requests
     blocked_res = clean_client.post(
         "/login",
-        data={"username": "test_admin", "password": "bad_password"},
+        data={"username": "test_admin", "password": "bad_password", "csrf_token": csrf_token},
     )
     assert blocked_res.status_code == 429
     assert "Too many failed login attempts" in blocked_res.text

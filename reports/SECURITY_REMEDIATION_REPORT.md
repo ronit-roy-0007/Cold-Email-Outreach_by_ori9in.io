@@ -55,13 +55,13 @@ Every vulnerability has been eliminated with verified code remediations, zero ne
   2. In production, Alembic migrations executed by the entrypoint are the sole authority for database schema management.
 
 ### Vulnerability 6: Enforce Strict Session-Bound CSRF Protection (CRITICAL)
-- **Root Cause:** `require_csrf()` in `app/security.py` exited without raising an exception when CSRF tokens were missing or invalid, and was not attached to any mutating routes or middleware.
+- **Root Cause:** `require_csrf()` in `app/security.py` exited without raising an exception when CSRF tokens were missing or invalid, and was not attached to any mutating routes or middleware. In addition, the login endpoint previously checked CSRF tokens conditionally, allowing an unauthenticated attacker to bypass CSRF if the pre-session cookie was absent.
 - **Remediation:**
   1. Rebuilt `require_csrf` as an asynchronous FastAPI dependency that strictly validates tokens against the authenticated operator's active session token using HMAC-SHA256 in constant time (`hmac.compare_digest`).
   2. Enforced HTTP 403 Forbidden rejection when the CSRF token is missing, malformed, or generated from another session.
   3. Attached `require_csrf` to all mutating operations across `web_router` covering POST, PUT, PATCH, and DELETE.
   4. Updated `verify_api_key_or_operator` so that browser sessions must supply a valid `X-CSRF-Token` on state-changing requests, while external API-key callers bypass CSRF via an isolated, dedicated authentication branch.
-  5. Protected `POST /login` against Login CSRF using pre-session cryptographic cookies (`intentlead_login_csrf`).
+  5. Enforced mandatory Login CSRF protection on `POST /login`: missing `intentlead_login_csrf` cookie, missing submitted token, or token mismatch all strictly reject with HTTP 403 Forbidden using constant-time comparison (`hmac.compare_digest`) before any credential or rate-limit processing.
   6. Protected `POST /logout` against Logout CSRF by requiring valid session CSRF tokens and rejecting `GET /logout` with HTTP 405 Method Not Allowed.
   7. Added hidden `csrf_token` input fields to all HTML forms (`campaign_new.html`, `mailboxes.html`, `suppression.html`, `base.html`).
   8. Updated all frontend JavaScript `fetch` handlers in `intentlead.js` and `inbox.html` to extract and attach the `X-CSRF-Token` header.
@@ -105,10 +105,10 @@ Every vulnerability has been eliminated with verified code remediations, zero ne
 
 ## 4. Verification Test Matrix
 
-All security controls are validated by automated pytest test suites across the repository (188 tests, 100% pass rate):
+All security controls are validated by automated pytest test suites across the repository (194 tests, 100% pass rate):
 
-- `test_hardened_security.py` (27/27 passed): Credential encryption/decryption, legacy credential migration, SSRF IP blocking, distributed rate limiting, replay protection, production security startup validation, full CSRF protection lifecycle (missing, invalid, cross-session, valid), dual-path API-key vs browser session CSRF separation, campaign import API-key protection, orchestrator run API-key protection, and Telegram webhook production fail-closed verification.
-- `test_operator_auth.py` (12/12 passed): Password hashing, bootstrap idempotency, redirect on unauthenticated GET, 401 on unauthenticated API request, form render, invalid credentials rejection, login cookie setting, logout invalidation with CSRF check, brute-force rate limiting, expired session rejection, expired session cleanup, and CSRF token lifecycle.
+- `test_hardened_security.py` (28/28 passed): Credential encryption/decryption, legacy credential migration, SSRF IP blocking, distributed rate limiting, replay protection, production security startup validation, full CSRF protection lifecycle (missing, invalid, cross-session, valid), dual-path API-key vs browser session CSRF separation, mandatory login CSRF enforcement, campaign import API-key protection, orchestrator run API-key protection, and Telegram webhook production fail-closed verification.
+- `test_operator_auth.py` (17/17 passed): Password hashing, bootstrap idempotency, redirect on unauthenticated GET, 401 on unauthenticated API request, form render with pre-session CSRF cookie, invalid credentials rejection, login session cookie setting and pre-session cookie deletion, 5-scenario mandatory login CSRF enforcement (missing cookie, missing token, token mismatch, valid token passing to auth, and pre-session cookie generation), logout invalidation with CSRF check, brute-force rate limiting, expired session rejection, expired session cleanup, and CSRF token lifecycle.
 - `test_ai_draft_studio.py` (16/16 passed): Authenticated session and API key access for AI generate and draft endpoints, rejection of missing/invalid CSRF tokens on browser session mutations, optimistic concurrency conflict handling.
 - `test_security_and_health.py` (4/4 passed): Health probes, API key enforcement, compliance webhook bounce/complaint processing, in-memory rate limiter.
 

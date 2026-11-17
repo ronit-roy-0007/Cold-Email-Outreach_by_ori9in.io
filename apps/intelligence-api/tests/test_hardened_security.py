@@ -846,6 +846,34 @@ def test_csrf_protection_lifecycle(db_session, auth_settings):
     app.dependency_overrides.clear()
 
 
+def test_login_csrf_mandatory_enforcement(db_session, auth_settings):
+    """Verify login endpoint strictly enforces mandatory pre-session CSRF cookie and token."""
+    app.dependency_overrides[get_session] = lambda: db_session
+    app.dependency_overrides[get_settings] = lambda: auth_settings
+
+    with TestClient(app, follow_redirects=False) as client:
+        # 1. Missing cookie -> 403 Forbidden
+        res_no_cookie = client.post("/login", data={"username": "admin", "password": "pwd", "csrf_token": "abc"})
+        assert res_no_cookie.status_code == 403
+
+        # 2. Missing token -> 403 Forbidden
+        page = client.get("/login")
+        assert "intentlead_login_csrf" in page.cookies
+        res_no_token = client.post("/login", data={"username": "admin", "password": "pwd"})
+        assert res_no_token.status_code == 403
+
+        # 3. Mismatched token -> 403 Forbidden
+        res_mismatch = client.post("/login", data={"username": "admin", "password": "pwd", "csrf_token": "wrong"})
+        assert res_mismatch.status_code == 403
+
+        # 4. Valid matching cookie & token -> proceeds through authentication
+        valid_csrf = page.cookies["intentlead_login_csrf"]
+        res_valid = client.post("/login", data={"username": "admin", "password": "pwd", "csrf_token": valid_csrf})
+        assert res_valid.status_code == 401  # Passes CSRF, reaches credential verification
+
+    app.dependency_overrides.clear()
+
+
 def test_csrf_dual_path_authentication(db_session):
     from app.services.auth import create_operator_session, ensure_bootstrap_operator, generate_csrf_token
 

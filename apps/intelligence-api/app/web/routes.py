@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import csv
 from datetime import datetime, timezone
+import hmac
 import io
 import logging
 from pathlib import Path
+import secrets
 from typing import Any
 import uuid
 
@@ -91,7 +93,6 @@ def login_page(
     if user:
         return RedirectResponse(url=_sanitize_next_url(next), status_code=status.HTTP_303_SEE_OTHER)
 
-    import secrets
     login_csrf = request.cookies.get("intentlead_login_csrf")
     if not login_csrf:
         login_csrf = secrets.token_urlsafe(32)
@@ -129,23 +130,51 @@ def login_action(
 ):
     client_ip = extract_client_ip(request, settings.TRUSTED_PROXIES)
 
-    # Validate login CSRF token if cookie is present
+    # Mandatory login CSRF validation
     login_csrf_cookie = request.cookies.get("intentlead_login_csrf")
-    if login_csrf_cookie:
-        provided_csrf = request.headers.get("x-csrf-token") or csrf_token
-        if not provided_csrf or not hmac.compare_digest(login_csrf_cookie, provided_csrf.strip()):
-            logger.warning("Login CSRF token validation failed from IP %s", client_ip)
-            return templates.TemplateResponse(
-                request=request,
-                name="login.html",
-                context={
-                    "error": "Security validation failed. Please refresh the page and try again.",
-                    "next_url": _sanitize_next_url(next),
-                    "username": username,
-                    "csrf_token": login_csrf_cookie,
-                },
-                status_code=status.HTTP_403_FORBIDDEN,
-            )
+    provided_csrf = request.headers.get("x-csrf-token") or csrf_token
+
+    if not login_csrf_cookie or not str(login_csrf_cookie).strip():
+        logger.warning("Login CSRF check failed: missing pre-session cookie from IP %s", client_ip)
+        return templates.TemplateResponse(
+            request=request,
+            name="login.html",
+            context={
+                "error": "Security validation failed. Please refresh the page and try again.",
+                "next_url": _sanitize_next_url(next),
+                "username": username,
+                "csrf_token": "",
+            },
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
+
+    if not provided_csrf or not str(provided_csrf).strip():
+        logger.warning("Login CSRF check failed: missing submitted token from IP %s", client_ip)
+        return templates.TemplateResponse(
+            request=request,
+            name="login.html",
+            context={
+                "error": "Security validation failed. Please refresh the page and try again.",
+                "next_url": _sanitize_next_url(next),
+                "username": username,
+                "csrf_token": login_csrf_cookie,
+            },
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
+
+    if not hmac.compare_digest(login_csrf_cookie.strip(), str(provided_csrf).strip()):
+        logger.warning("Login CSRF check failed: token mismatch from IP %s", client_ip)
+        return templates.TemplateResponse(
+            request=request,
+            name="login.html",
+            context={
+                "error": "Security validation failed. Please refresh the page and try again.",
+                "next_url": _sanitize_next_url(next),
+                "username": username,
+                "csrf_token": login_csrf_cookie,
+            },
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
 
     if is_ip_rate_limited(
         client_ip,
@@ -160,6 +189,7 @@ def login_action(
                 "error": "Too many failed login attempts. Please wait 15 minutes before trying again.",
                 "next_url": _sanitize_next_url(next),
                 "username": username,
+                "csrf_token": login_csrf_cookie,
             },
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
         )
@@ -177,6 +207,7 @@ def login_action(
                 "error": "Invalid username or password.",
                 "next_url": _sanitize_next_url(next),
                 "username": username,
+                "csrf_token": login_csrf_cookie,
             },
             status_code=status.HTTP_401_UNAUTHORIZED,
         )

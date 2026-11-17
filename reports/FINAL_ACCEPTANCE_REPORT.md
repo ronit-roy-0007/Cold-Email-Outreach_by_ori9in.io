@@ -13,10 +13,10 @@
 
 As Principal Software Architect and Application Security Auditor, I hereby certify that **IntentLead AI** has completed all operational, security, CSRF enforcement, endpoint protection, and functional remediation requirements.
 
-All remediation phases and final security gate requirements have been executed and verified in accordance with production engineering standards. The application is completely decoupled from any external proprietary studio, strictly adheres to open-source self-hosting requirements, enforces fail-closed security and data integrity invariants, and passes 100% of the comprehensive automated test suite (188/188 tests across all 23 test suites).
+All remediation phases and final security gate requirements have been executed and verified in accordance with production engineering standards. The application is completely decoupled from any external proprietary studio, strictly adheres to open-source self-hosting requirements, enforces fail-closed security and data integrity invariants, and passes 100% of the comprehensive automated test suite (194/194 tests across all 23 test suites).
 
 ### Environment Scope & Production Validation Boundaries
-- **Automated Test Verification:** 100% automated acceptance achieved in the local Windows 11 Python 3.12 test environment with SQLite and PostgreSQL test databases (188 passed, 0 failed, 1 deprecation warning, 282.54s execution time).
+- **Automated Test Verification:** 100% automated acceptance achieved in the local Windows 11 Python 3.12 test environment with SQLite and PostgreSQL test databases (194 passed, 0 failed, 1 deprecation warning, 225.13s execution time).
 - **Cross-Platform Portability:** Docker Compose configurations, Dockerfiles, and shell entrypoint scripts are structurally verified and normalized with LF line endings via `.gitattributes` for Windows 10/11, macOS, Linux, and Ubuntu VPS deployments.
 - **External Production Validation:** In strict adherence to safety invariants (`OUTREACH_DRY_RUN=True`, mock email dispatch, synthetic prospect data, and zero live outreach), no tests were conducted against live external email servers (SendGrid, Resend), remote DNS MX records, live Telegram webhooks under public HTTPS, or external VPS cloud infrastructure. Deploying operators must perform staging verification of external credentials and network ingress/egress before enabling production outreach.
 
@@ -43,6 +43,7 @@ All remediation phases and final security gate requirements have been executed a
 | **Gate 3** | Protected Orchestrator Campaign Run Endpoint | Added `verify_api_key` dependency to `POST /api/orchestrator/campaign-run`. Unauthenticated/invalid keys return 401; pipeline preserved. | **VERIFIED** |
 | **Gate 4** | Telegram Webhook Fail-Closed Security | Enforced constant-time secret comparison and production fail-closed rejection on `POST /api/orchestrator/webhooks/telegram`. Webhook mode requires secret; polling mode preserved without secret. | **VERIFIED** |
 | **Gate 5** | Production Security Documentation Clarity | Clarified `validate_production_security()` docstring distinguishing startup-time lifespan checks from request-time dependency checks. | **VERIFIED** |
+| **Gate 6** | Mandatory Login CSRF Enforcement | Replaced conditional login CSRF check with mandatory validation (missing cookie -> 403, missing token -> 403, token mismatch -> 403; constant-time comparison). Validated across 5 test scenarios. | **VERIFIED** |
 
 ---
 
@@ -52,7 +53,7 @@ All remediation phases and final security gate requirements have been executed a
 - **Password Security:** PBKDF2-HMAC-SHA256 with 600,000 iterations and 16-byte random cryptographic salt.
 - **Session Tokens:** 256-bit URL-safe tokens hashed via SHA-256 in database; cookies protected by `HttpOnly`, `SameSite=Lax`, and `Secure` attributes.
 - **Rate Limiting:** Sliding-window tracker enforcing 5 failed login attempts per 15 minutes per IP, returning HTTP 429 Too Many Requests.
-- **CSRF Defense:** Session-bound HMAC-SHA256 tokens validated on all state-changing web mutations (POST/PUT/PATCH/DELETE). Pre-session login CSRF protection; constant-time comparison; API-key clients isolated and preserved.
+- **CSRF Defense:** Session-bound HMAC-SHA256 tokens validated on all state-changing web mutations (POST/PUT/PATCH/DELETE). Mandatory pre-session login CSRF protection; constant-time comparison; API-key clients isolated and preserved.
 - **Operator Bootstrap:** Fully idempotent bootstrap via `ensure_bootstrap_operator` and CLI script [`scripts/bootstrap_operator.py`](scripts/bootstrap_operator.py).
 
 ### B. AI Draft Studio Architecture
@@ -86,15 +87,15 @@ All remediation phases and final security gate requirements have been executed a
 The automated test suite was executed in full against the remediated repository (`pytest apps/intelligence-api/tests -q`):
 
 - **Total Test Files:** 23 (23 of 23 executed, 0 omitted)
-- **Total Test Cases Collected:** 188
-- **Passed:** 188 (100%)
+- **Total Test Cases Collected:** 194
+- **Passed:** 194 (100%)
 - **Failed:** 0 (0%)
 - **Skipped:** 0
 - **Warnings:** 1 (Starlette anyio `BlockingPortal` deprecation notice)
-- **Exact Execution Time:** 282.54 seconds (4 minutes 42.54 seconds)
+- **Exact Execution Time:** 225.13 seconds (3 minutes 45.13 seconds)
 - **Regressions:** 0
 
-### Reconciled Suite Breakdown (188 Total Tests across 23 Files):
+### Reconciled Suite Breakdown (194 Total Tests across 23 Files):
 1. `test_ai_draft_studio.py`: 16 passed
 2. `test_api.py`: 3 passed
 3. `test_audit.py`: 5 passed
@@ -102,12 +103,12 @@ The automated test suite was executed in full against the remediated repository 
 5. `test_drafts.py`: 7 passed
 6. `test_email_dispatcher.py`: 10 passed
 7. `test_gemini_personalizer.py`: 2 passed
-8. `test_hardened_security.py`: 27 passed
+8. `test_hardened_security.py`: 28 passed
 9. `test_identity.py`: 4 passed
 10. `test_import_loader.py`: 3 passed
 11. `test_mailbox_pool.py`: 5 passed
 12. `test_mock_scraper.py`: 4 passed
-13. `test_operator_auth.py`: 12 passed
+13. `test_operator_auth.py`: 17 passed
 14. `test_parser.py`: 5 passed
 15. `test_pipeline.py`: 2 passed
 16. `test_robots.py`: 3 passed
@@ -119,7 +120,7 @@ The automated test suite was executed in full against the remediated repository 
 22. `test_sub_campaigns.py`: 11 passed
 23. `test_telegram.py`: 21 passed
 
-*Total: 16 + 3 + 5 + 5 + 7 + 10 + 2 + 27 + 4 + 3 + 5 + 4 + 12 + 5 + 2 + 3 + 9 + 11 + 4 + 6 + 13 + 11 + 21 = 188 passed.*
+*Total: 16 + 3 + 5 + 5 + 7 + 10 + 2 + 28 + 4 + 3 + 5 + 4 + 17 + 5 + 2 + 3 + 9 + 11 + 4 + 6 + 13 + 11 + 21 = 194 passed.*
 
 ---
 
