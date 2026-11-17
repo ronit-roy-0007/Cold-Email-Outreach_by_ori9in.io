@@ -13,6 +13,7 @@ NEARBY_REGION_MAP: dict[str, list[str]] = {
     "pan india": ["Delhi", "Mumbai", "Bangalore", "Hyderabad", "Chennai", "Kolkata", "Pune"],
     "uk": ["London", "Manchester", "Birmingham", "Leeds", "Glasgow", "Edinburgh"],
     "united kingdom": ["London", "Manchester", "Birmingham", "Leeds", "Glasgow", "Edinburgh"],
+    "england": ["London", "Manchester", "Birmingham", "Leeds", "Liverpool", "Bristol", "Newcastle", "Sheffield"],
     # India Cities
     "delhi": ["Noida", "Gurugram", "Ghaziabad", "Faridabad", "Greater Noida", "South Delhi", "Dwarka"],
     "new delhi": ["South Delhi", "Noida", "Gurugram", "Ghaziabad", "Faridabad"],
