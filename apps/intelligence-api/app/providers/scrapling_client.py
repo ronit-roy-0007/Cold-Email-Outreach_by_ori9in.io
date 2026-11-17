@@ -101,7 +101,7 @@ def crawl_website_details(website_url: str) -> tuple[str | None, dict[str, str]]
     socials: dict[str, str] = {}
 
     try:
-        resp = Fetcher.get(website_url, timeout=10)
+        resp = Fetcher.get(website_url, timeout=6, retries=1)
         if resp.status == 200 and resp.html_content:
             ems = extract_emails_from_html(resp.html_content)
             if ems:
@@ -120,7 +120,7 @@ def crawl_website_details(website_url: str) -> tuple[str | None, dict[str, str]]
                         c_url = urllib.parse.urljoin(website_url, h)
                         if c_url != website_url and c_url.startswith("http"):
                             try:
-                                c_resp = Fetcher.get(c_url, timeout=10)
+                                c_resp = Fetcher.get(c_url, timeout=6, retries=1)
                                 if c_resp.status == 200 and c_resp.html_content:
                                     c_ems = extract_emails_from_html(c_resp.html_content)
                                     if c_ems:
@@ -271,7 +271,7 @@ class ScraplingClient:
                 reviews=[],
             )
 
-        with ThreadPoolExecutor(max_workers=6) as pool:
+        with ThreadPoolExecutor(max_workers=16) as pool:
             futures = [pool.submit(_enrich_listing, r) for r in raw_listings]
             for f in as_completed(futures):
                 try:

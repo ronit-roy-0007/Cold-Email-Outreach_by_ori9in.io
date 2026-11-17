@@ -67,9 +67,9 @@ def process_listings(
         evs = audit_business(None, campaign.id, b, fetcher=fetcher)
         return b, l, evs
 
-    if len(candidates) > 1 and (fetcher is None or campaign.provider in ("live", "google_maps")):
+    if len(candidates) > 1 and (fetcher is None or campaign.provider in ("live", "google_maps", "scrapling")):
         from concurrent.futures import ThreadPoolExecutor
-        workers = min(len(candidates), 6)
+        workers = min(len(candidates), 16)
         with ThreadPoolExecutor(max_workers=workers) as pool:
             audited_items = list(pool.map(_audit_task, candidates))
     else:
