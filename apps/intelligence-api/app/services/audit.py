@@ -90,7 +90,7 @@ def production_fetcher(url: str) -> FetchResult:
 
         try:
             with httpx.Client(
-                timeout=httpx.Timeout(connect=3.0, read=5.0, write=3.0, pool=3.0),
+                timeout=httpx.Timeout(connect=10.0, read=10.0, write=5.0, pool=5.0),
                 follow_redirects=False,
                 headers={"User-Agent": "IntentLeadBot/1.0 (+https://intentlead.agency)"},
             ) as client:
@@ -245,12 +245,17 @@ def audit_business(
 
     # 4. CAPTCHA / paywall
     body_text_lower = hp_res.body_bytes.decode("utf-8", errors="replace").lower()
-    if (
-        "recaptcha" in body_text_lower
-        or "hcaptcha" in body_text_lower
+    is_challenge_gate = (
+        hp_res.status == 402
         or "cf-chl-bypass" in body_text_lower
-        or hp_res.status == 402
-    ):
+        or "<title>just a moment...</title>" in body_text_lower
+        or "<title>attention required! | cloudflare</title>" in body_text_lower
+        or "id=\"challenge-running\"" in body_text_lower
+        or "id=\"challenge-stage\"" in body_text_lower
+        or "class=\"cf-browser-verification\"" in body_text_lower
+        or (hp_res.status in (403, 429) and any(term in body_text_lower for term in ("recaptcha", "hcaptcha", "captcha", "security check", "verify you are human")))
+    )
+    if is_challenge_gate:
         ev = Evidence(
             business_id=business.id,
             campaign_id=campaign_id,

@@ -49,10 +49,19 @@ BLOCKED_NETWORKS = [
     ipaddress.ip_network("2001:db8::/32"),
 ]
 
+NAT64_WELL_KNOWN_PREFIX = ipaddress.ip_network("64:ff9b::/96")
+NAT64_LOCAL_PREFIX = ipaddress.ip_network("64:ff9b:1::/48")
+
 
 def _is_ip_blocked(ip_obj: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
-    if ip_obj.version == 6 and ip_obj.ipv4_mapped:
-        ip_obj = ip_obj.ipv4_mapped
+    if ip_obj.version == 6:
+        if ip_obj.ipv4_mapped:
+            return _is_ip_blocked(ip_obj.ipv4_mapped)
+        elif ip_obj in NAT64_WELL_KNOWN_PREFIX or ip_obj in NAT64_LOCAL_PREFIX:
+            # RFC 6052 & RFC 8215: IPv4-IPv6 translation (NAT64/DNS64)
+            # The embedded IPv4 address is in the last 32 bits
+            v4_addr = ipaddress.IPv4Address(int(ip_obj) & 0xFFFFFFFF)
+            return _is_ip_blocked(v4_addr)
 
     if (
         ip_obj.is_loopback
