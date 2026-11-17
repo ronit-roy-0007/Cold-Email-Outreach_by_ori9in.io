@@ -139,7 +139,7 @@ def crawl_website_details(website_url: str) -> tuple[str | None, dict[str, str]]
     return email, socials
 
 
-def search_google_maps_via_scrapling(query: str, location: str, target_count: int = 25) -> list[dict[str, Any]]:
+def search_google_maps_via_scrapling(query: str, location: str, target_count: int = 60) -> list[dict[str, Any]]:
     search_term = f"{query} in {location}".strip()
     encoded_search = urllib.parse.quote_plus(search_term)
     url = f"https://www.google.com/maps/search/{encoded_search}"
@@ -147,20 +147,20 @@ def search_google_maps_via_scrapling(query: str, location: str, target_count: in
     logger.info("Scrapling searching Google Maps: %s (target: %d)", url, target_count)
     listings_raw: list[dict[str, Any]] = []
 
-    scroll_cycles = max(3, min(target_count // 5, 12))
+    scroll_cycles = max(6, min(target_count // 4, 20))
 
     def _scroll_feed(page: Any) -> None:
         try:
             feed = page.locator("div[role='feed']")
-            feed.wait_for(timeout=8000)
+            feed.wait_for(timeout=10000)
             for _ in range(scroll_cycles):
-                feed.evaluate("el => el.scrollBy(0, 1500)")
-                page.wait_for_timeout(1000)
+                feed.evaluate("el => el.scrollBy(0, 2500)")
+                page.wait_for_timeout(900)
         except Exception as e:
             logger.debug("Scrapling scroll notification: %s", e)
 
     try:
-        page = StealthyFetcher.fetch(url, headless=True, page_action=_scroll_feed, timeout=35000)
+        page = StealthyFetcher.fetch(url, headless=True, page_action=_scroll_feed, timeout=45000)
         if page.status != 200 or not page.html_content:
             logger.warning("Scrapling Maps search returned status %s", page.status)
             return []
@@ -236,13 +236,14 @@ class ScraplingClient:
         self,
         query: str,
         location: str,
-        limit: int = 25,
+        limit: int = 60,
         filters: dict[str, Any] | None = None,
     ) -> str:
         job_id = f"scrapling-job-{uuid.uuid4().hex[:8]}"
-        logger.info("Scrapling starting discovery job %s for '%s in %s' (target: %d)", job_id, query, location, limit)
+        fetch_limit = max(limit, 60)
+        logger.info("Scrapling starting discovery job %s for '%s in %s' (target: %d)", job_id, query, location, fetch_limit)
 
-        raw_listings = search_google_maps_via_scrapling(query, location, target_count=limit)
+        raw_listings = search_google_maps_via_scrapling(query, location, target_count=fetch_limit)
         logger.info("Scrapling discovered %d businesses in %s", len(raw_listings), location)
 
         normalized: list[NormalizedListing] = []

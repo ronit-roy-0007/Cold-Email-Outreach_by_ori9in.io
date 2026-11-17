@@ -232,10 +232,23 @@ def run_campaign(
             current_filters["depth"] = depth
             current_filters["attempt"] = attempt
 
-            batch_limit = max(target_qualified, 25)
+            batch_limit = max(target_qualified * 3, 60) if min_score > 0 else max(target_qualified, 25)
+
+            # In large metros, explore directional sectors on subsequent attempts to discover fresh businesses
+            if attempt == 1:
+                attempt_loc = search_location
+            elif attempt == 2:
+                attempt_loc = f"Central {search_location}"
+            elif attempt == 3:
+                attempt_loc = f"North {search_location}"
+            elif attempt == 4:
+                attempt_loc = f"South {search_location}"
+            else:
+                attempt_loc = f"West {search_location}"
+
             external_job_id = scraper.create_job(
                 campaign.niche,
-                search_location,
+                attempt_loc,
                 limit=batch_limit,
                 filters=current_filters,
             )
