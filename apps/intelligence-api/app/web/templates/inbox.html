@@ -289,6 +289,13 @@
 </div>
 
 <script>
+  function getCsrfToken() {
+    const meta = document.querySelector('meta[name="csrf-token"]');
+    if (meta && meta.content) return meta.content;
+    const match = document.cookie.match(/(?:^|;\s*)intentlead_csrf=([^;]+)/);
+    return match ? decodeURIComponent(match[1]) : '';
+  }
+
   let activeConversationId = "{{ initial_conversation_id }}";
   let currentFilter = {
     status: 'all',
@@ -567,7 +574,10 @@
     try {
       const res = await fetch(`/api/web/inbox/conversations/${activeConversationId}/reply`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': getCsrfToken()
+        },
         body: JSON.stringify({
           body: body,
           subject: subject,
@@ -600,7 +610,10 @@
     try {
       const res = await fetch(`/api/web/inbox/conversations/${activeConversationId}/actions`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': getCsrfToken()
+        },
         body: JSON.stringify({ action: action })
       });
       if (!res.ok) throw new Error('Action failed');
@@ -618,7 +631,10 @@
     try {
       const res = await fetch(`/api/web/inbox/conversations/${activeConversationId}/actions`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': getCsrfToken()
+        },
         body: JSON.stringify({ action: 'archive' })
       });
       if (!res.ok) throw new Error('Failed to archive conversation');
@@ -711,7 +727,10 @@
     try {
       const res = await fetch('/api/inbound/simulate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': getCsrfToken()
+        },
         body: JSON.stringify({
           sender_email: sender,
           subject: subject,

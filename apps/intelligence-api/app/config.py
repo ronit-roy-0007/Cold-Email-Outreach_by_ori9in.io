@@ -60,6 +60,7 @@ class Settings(BaseSettings):
     API_KEY: str = ""
     CORS_ORIGINS: str = "*"
     RATE_LIMIT_PER_MINUTE: int = 120
+    TELEGRAM_MODE: str = "polling"  # "polling" (default) or "webhook"
     TELEGRAM_WEBHOOK_SECRET: str = ""
     FIELD_ENCRYPTION_KEY: str = ""
     OUTREACH_WEBHOOK_SECRET: str = ""
@@ -99,7 +100,22 @@ def resolve_database_url(settings: Settings) -> str:
 def validate_production_security(settings: Settings) -> None:
     """
     Enforces essential security controls when running in production environment.
-    Fails fast at application startup if critical secrets or unsafe policies are detected.
+    Fails fast at application startup (FastAPI lifespan) if critical secrets or unsafe policies are detected.
+
+    Startup-Time Validations (Lifespan):
+      - FIELD_ENCRYPTION_KEY: Must be configured in production to encrypt sensitive credentials at rest.
+      - CORS_ORIGINS: Cannot be set to wildcard '*' in production. Provide an explicit comma-separated allowlist.
+      - UNSUBSCRIBE_SECRET: Must be set to a secure, unique secret in production (rejects default placeholder).
+      - TELEGRAM_WEBHOOK_SECRET: Must be configured if running in production webhook mode (TELEGRAM_MODE='webhook').
+        Note: When running in polling mode (the default), TELEGRAM_WEBHOOK_SECRET is not required at startup.
+
+    Request-Time Validations (FastAPI Dependencies in app.security):
+      - API_KEY validation (via verify_api_key / verify_api_key_or_operator):
+        Evaluated per request on protected API endpoints. Fails closed in production (HTTP 401)
+        if API_KEY is missing, too short (< 16 characters), or set to an insecure placeholder,
+        or if the incoming client does not supply a matching X-API-Key or Bearer token.
+      - Operator Session & CSRF validation (via require_operator / require_csrf):
+        Evaluated per request on dashboard routes and browser state-changing mutations.
     """
     if settings.APP_ENV == "production":
         if not settings.FIELD_ENCRYPTION_KEY or not settings.FIELD_ENCRYPTION_KEY.strip():
@@ -115,6 +131,11 @@ def validate_production_security(settings: Settings) -> None:
             raise SecurityConfigError(
                 "UNSUBSCRIBE_SECRET must be set to a secure, unique secret in production."
             )
+        if getattr(settings, "TELEGRAM_MODE", "polling").lower() == "webhook":
+            if not settings.TELEGRAM_WEBHOOK_SECRET or not settings.TELEGRAM_WEBHOOK_SECRET.strip():
+                raise SecurityConfigError(
+                    "TELEGRAM_WEBHOOK_SECRET must be configured when running in production webhook mode."
+                )
 
 
 @lru_cache

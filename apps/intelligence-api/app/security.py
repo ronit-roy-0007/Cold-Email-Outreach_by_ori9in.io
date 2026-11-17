@@ -72,7 +72,12 @@ def verify_api_key_or_operator(
     Authorizes requests from either:
       1. An external API client providing a valid API key (X-API-Key or Bearer)
       2. An authenticated operator browser session (HttpOnly session cookie)
-    Completely eliminates header-based spoofing (Referer / Sec-Fetch-Site).
+
+    Security Invariants:
+      - Completely eliminates header-based spoofing (Referer / Sec-Fetch-Site).
+      - Enforces CSRF token validation on all state-changing browser requests (POST/PUT/PATCH/DELETE).
+      - Preserves legitimate API-key-authenticated external clients through a clearly separated authentication path.
+      - Does not exempt browser sessions from CSRF protection.
     """
     configured_key = (settings.API_KEY or "").strip()
 
@@ -82,6 +87,7 @@ def verify_api_key_or_operator(
         if len(parts) == 2 and parts[0].lower() == "bearer":
             provided_key = parts[1]
 
+    # Path 1: External API client with API Key (no CSRF requirement)
     if provided_key:
         if configured_key and hmac.compare_digest(provided_key.strip(), configured_key):
             return provided_key
@@ -93,12 +99,24 @@ def verify_api_key_or_operator(
             headers={"WWW-Authenticate": "ApiKey"},
         )
 
-    # Validate operator session cookie
+    # Path 2: Operator browser session with session cookie (mandatory CSRF on state-changing methods)
     session_cookie = request.cookies.get(settings.SESSION_COOKIE_NAME)
     if session_cookie:
-        from app.services.auth import validate_session_token
+        from app.services.auth import validate_csrf_token, validate_session_token
         operator_user = validate_session_token(db, session_cookie)
         if operator_user:
+            if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+                provided_csrf = request.headers.get("x-csrf-token") or request.headers.get("x-xsrf-token")
+                if not provided_csrf or not provided_csrf.strip():
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="CSRF token missing on browser state-changing request. Include 'X-CSRF-Token' header.",
+                    )
+                if not validate_csrf_token(session_cookie, settings.SESSION_SECRET_KEY, provided_csrf):
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="Invalid or expired CSRF token.",
+                    )
             return f"operator:{operator_user.username}"
 
     # In development mode only, allow unauthenticated access if no API_KEY configured
@@ -171,35 +189,53 @@ def require_operator(
     )
 
 
-def require_csrf(
+async def require_csrf(
     request: Request,
     user: OperatorUser = Depends(require_operator),
     settings: Settings = Depends(get_settings),
 ) -> None:
     """
-    Enforces session-bound CSRF token validation on state-changing browser requests (POST/PUT/DELETE).
-    Reads CSRF token from X-CSRF-Token header or form field 'csrf_token'.
+    Enforces session-bound CSRF token validation on state-changing browser requests (POST/PUT/PATCH/DELETE).
+    Reads CSRF token from:
+      1. 'X-CSRF-Token' or 'X-XSRF-Token' header
+      2. Form field 'csrf_token'
+    Fails with HTTP 403 Forbidden if missing, invalid, or bound to another session.
     """
     if request.method in ("GET", "HEAD", "OPTIONS"):
         return
 
     session_cookie = request.cookies.get(settings.SESSION_COOKIE_NAME)
     if not session_cookie:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Missing operator session for CSRF check.")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Missing operator session for CSRF check.",
+        )
 
     from app.services.auth import validate_csrf_token
 
-    provided_csrf = request.headers.get("x-csrf-token")
+    provided_csrf = request.headers.get("x-csrf-token") or request.headers.get("x-xsrf-token")
     if not provided_csrf:
-        # Check form data if applicable
-        # Handled in route-level form validation or middleware
-        pass
+        content_type = request.headers.get("content-type", "")
+        if "application/x-www-form-urlencoded" in content_type or "multipart/form-data" in content_type:
+            try:
+                form = await request.form()
+                form_token = form.get("csrf_token")
+                if form_token:
+                    provided_csrf = str(form_token)
+            except Exception:
+                pass
 
-    if provided_csrf and validate_csrf_token(session_cookie, settings.SESSION_SECRET_KEY, provided_csrf):
-        return
+    if not provided_csrf or not str(provided_csrf).strip():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="CSRF token missing. Include 'X-CSRF-Token' header or 'csrf_token' form field.",
+        )
 
-    # If form body contains csrf_token, route will validate or this can check header
-    # Allow if verified via header
+    if not validate_csrf_token(session_cookie, settings.SESSION_SECRET_KEY, str(provided_csrf)):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid or expired CSRF token.",
+        )
 
 
 

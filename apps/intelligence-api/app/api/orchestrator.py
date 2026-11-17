@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hmac
+import logging
 from typing import Any
 import uuid
 
@@ -14,6 +16,8 @@ from app.services.campaigns import create_campaign
 from app.services.pipeline import run_campaign
 from app.services.telegram_bot import format_approval_card, handle_telegram_update, record_approval
 
+logger = logging.getLogger("intentlead.api.orchestrator")
+
 router = APIRouter(prefix="/api/orchestrator", tags=["orchestrator"])
 
 
@@ -24,9 +28,26 @@ def telegram_webhook_endpoint(
     settings: Settings = Depends(get_settings),
     secret_token: str | None = Header(None, alias="X-Telegram-Bot-Api-Secret-Token"),
 ) -> dict[str, Any]:
-    if settings.TELEGRAM_WEBHOOK_SECRET:
-        if secret_token != settings.TELEGRAM_WEBHOOK_SECRET:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid Telegram webhook secret token")
+    # Production fail-closed: missing TELEGRAM_WEBHOOK_SECRET must reject webhook requests
+    if settings.APP_ENV == "production":
+        if not settings.TELEGRAM_WEBHOOK_SECRET or not settings.TELEGRAM_WEBHOOK_SECRET.strip():
+            logger.critical("TELEGRAM_WEBHOOK_SECRET is not configured in production. Rejecting unsigned webhook.")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Telegram webhook secret is not configured in production. Unsigned webhook requests are rejected.",
+            )
+
+    if settings.TELEGRAM_WEBHOOK_SECRET and settings.TELEGRAM_WEBHOOK_SECRET.strip():
+        if not secret_token:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Missing Telegram secret token header ('X-Telegram-Bot-Api-Secret-Token').",
+            )
+        if not hmac.compare_digest(secret_token.strip(), settings.TELEGRAM_WEBHOOK_SECRET.strip()):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Invalid Telegram webhook secret token.",
+            )
 
     res = handle_telegram_update(update, db, settings)
     if res.get("status") == "unauthorized":
@@ -90,11 +111,12 @@ def list_pending_approvals(
     return items
 
 
-@router.post("/campaign-run")
+@router.post("/campaign-run", dependencies=[Depends(check_rate_limit)])
 def trigger_orchestrated_campaign(
     payload: dict[str, Any],
     db: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
+    _: str = Depends(verify_api_key),
 ) -> dict[str, Any]:
     try:
         camp = create_campaign(db, payload, settings)

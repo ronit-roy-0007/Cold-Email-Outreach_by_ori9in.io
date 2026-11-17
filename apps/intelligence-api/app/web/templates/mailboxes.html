@@ -170,6 +170,7 @@
     </div>
 
     <form method="POST" action="/mailboxes/new">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token or '' }}">
       <div style="margin-bottom: 1rem;">
         <label class="form-label">Email Address (Google Workspace / SMTP)</label>
         <input type="email" name="email" required class="form-control" placeholder="outreach@yourdomain.com">

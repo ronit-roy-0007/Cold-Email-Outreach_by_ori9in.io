@@ -34,14 +34,21 @@ def auth_settings():
 
 @pytest.fixture
 def client(db_session, auth_settings):
-    from app.services.auth import ensure_bootstrap_operator, create_operator_session
+    from app.services.auth import (
+        create_operator_session,
+        ensure_bootstrap_operator,
+        generate_csrf_token,
+    )
     operator = ensure_bootstrap_operator(db_session, auth_settings)
     session_rec, raw_token = create_operator_session(db_session, operator, max_age_seconds=86400)
+    csrf_token = generate_csrf_token(raw_token, auth_settings.SESSION_SECRET_KEY)
 
     app.dependency_overrides[get_session] = lambda: db_session
     app.dependency_overrides[get_settings] = lambda: auth_settings
     with TestClient(app) as test_client:
         test_client.cookies.set(auth_settings.SESSION_COOKIE_NAME, raw_token)
+        test_client.cookies.set("intentlead_csrf", csrf_token)
+        test_client.headers["X-CSRF-Token"] = csrf_token
         yield test_client
     app.dependency_overrides.clear()
 

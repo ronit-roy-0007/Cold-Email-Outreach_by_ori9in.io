@@ -42,14 +42,17 @@ def auth_settings():
 
 @pytest.fixture
 def client(db_session, auth_settings):
-    from app.services.auth import ensure_bootstrap_operator, create_operator_session
+    from app.services.auth import ensure_bootstrap_operator, create_operator_session, generate_csrf_token
     operator = ensure_bootstrap_operator(db_session, auth_settings)
     session_rec, raw_token = create_operator_session(db_session, operator, max_age_seconds=86400)
+    csrf_tok = generate_csrf_token(raw_token, auth_settings.SESSION_SECRET_KEY)
 
     app.dependency_overrides[get_session] = lambda: db_session
     app.dependency_overrides[get_settings] = lambda: auth_settings
     with TestClient(app) as test_client:
         test_client.cookies.set(auth_settings.SESSION_COOKIE_NAME, raw_token)
+        test_client.cookies.set("intentlead_csrf", csrf_tok)
+        test_client.headers["X-CSRF-Token"] = csrf_tok
         yield test_client
     app.dependency_overrides.clear()
 
@@ -340,12 +343,18 @@ def test_ai_endpoints_api_key_authentication(client, sample_lead, auth_settings,
 
     monkeypatch.setattr(urllib.request, "urlopen", lambda r, timeout=None: MockResp())
 
-    from app.services.auth import create_operator_session, ensure_bootstrap_operator
+    from app.services.auth import create_operator_session, ensure_bootstrap_operator, generate_csrf_token
     op_user = ensure_bootstrap_operator(db_session, auth_settings)
     _, op_token = create_operator_session(db_session, op_user)
+    csrf_token = generate_csrf_token(op_token, auth_settings.SESSION_SECRET_KEY)
     client.cookies.set(auth_settings.SESSION_COOKIE_NAME, op_token)
 
-    res = client.post(f"/api/leads/{lead.id}/ai-generate")
+    # 3a. Authenticated operator session without CSRF token is rejected with 403 Forbidden
+    res_no_csrf = client.post(f"/api/leads/{lead.id}/ai-generate")
+    assert res_no_csrf.status_code == 403
+
+    # 3b. Authenticated operator session with valid CSRF token is authorized
+    res = client.post(f"/api/leads/{lead.id}/ai-generate", headers={"X-CSRF-Token": csrf_token})
     assert res.status_code == 200
 
     # 4. Valid X-API-Key header is authorized without session cookie

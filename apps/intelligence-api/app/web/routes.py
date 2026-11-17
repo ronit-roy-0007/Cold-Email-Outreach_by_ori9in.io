@@ -39,7 +39,7 @@ from app.models import (
     SuppressionEntry,
     utc_now,
 )
-from app.security import extract_client_ip, get_current_operator, require_operator
+from app.security import extract_client_ip, get_current_operator, require_csrf, require_operator
 from app.services.auth import (
     create_operator_session,
     destroy_operator_session,
@@ -64,7 +64,7 @@ templates = Jinja2Templates(directory=str(templates_dir))
 templates.env.globals.update({"min": min, "max": max})
 
 auth_router = APIRouter(tags=["auth"])
-web_router = APIRouter(tags=["web"], dependencies=[Depends(require_operator)])
+web_router = APIRouter(tags=["web"], dependencies=[Depends(require_operator), Depends(require_csrf)])
 
 
 def _sanitize_next_url(next_url: str | None) -> str:
@@ -90,15 +90,31 @@ def login_page(
     user = get_current_operator(request, db, settings)
     if user:
         return RedirectResponse(url=_sanitize_next_url(next), status_code=status.HTTP_303_SEE_OTHER)
-    return templates.TemplateResponse(
+
+    import secrets
+    login_csrf = request.cookies.get("intentlead_login_csrf")
+    if not login_csrf:
+        login_csrf = secrets.token_urlsafe(32)
+
+    response = templates.TemplateResponse(
         request=request,
         name="login.html",
         context={
             "error": None,
             "next_url": _sanitize_next_url(next),
             "username": "",
+            "csrf_token": login_csrf,
         },
     )
+    response.set_cookie(
+        key="intentlead_login_csrf",
+        value=login_csrf,
+        httponly=True,
+        samesite="lax",
+        secure=settings.APP_ENV == "production",
+        path="/",
+    )
+    return response
 
 
 @auth_router.post("/login")
@@ -107,10 +123,29 @@ def login_action(
     username: str = Form(...),
     password: str = Form(...),
     next: str = Form("/"),
+    csrf_token: str | None = Form(None),
     db: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
 ):
     client_ip = extract_client_ip(request, settings.TRUSTED_PROXIES)
+
+    # Validate login CSRF token if cookie is present
+    login_csrf_cookie = request.cookies.get("intentlead_login_csrf")
+    if login_csrf_cookie:
+        provided_csrf = request.headers.get("x-csrf-token") or csrf_token
+        if not provided_csrf or not hmac.compare_digest(login_csrf_cookie, provided_csrf.strip()):
+            logger.warning("Login CSRF token validation failed from IP %s", client_ip)
+            return templates.TemplateResponse(
+                request=request,
+                name="login.html",
+                context={
+                    "error": "Security validation failed. Please refresh the page and try again.",
+                    "next_url": _sanitize_next_url(next),
+                    "username": username,
+                    "csrf_token": login_csrf_cookie,
+                },
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
 
     if is_ip_rate_limited(
         client_ip,
@@ -177,25 +212,42 @@ def login_action(
         secure=is_prod,
         path="/",
     )
+    response.delete_cookie("intentlead_login_csrf", path="/")
     logger.info("Operator '%s' logged in successfully from %s", clean_user, client_ip)
     return response
 
 
 @auth_router.post("/logout")
-@auth_router.get("/logout")
 def logout_action(
     request: Request,
+    csrf_token: str | None = Form(None),
     db: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
 ):
     raw_token = request.cookies.get(settings.SESSION_COOKIE_NAME)
     if raw_token:
+        from app.services.auth import validate_csrf_token
+        provided_csrf = request.headers.get("x-csrf-token") or request.headers.get("x-xsrf-token") or csrf_token
+        if not provided_csrf or not validate_csrf_token(raw_token, settings.SESSION_SECRET_KEY, provided_csrf):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="CSRF token missing or invalid for logout.",
+            )
         destroy_operator_session(db, raw_token)
 
     response = RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
     response.delete_cookie(settings.SESSION_COOKIE_NAME, path="/")
     response.delete_cookie("intentlead_csrf", path="/")
+    response.delete_cookie("intentlead_login_csrf", path="/")
     return response
+
+
+@auth_router.get("/logout")
+def logout_get_rejected():
+    raise HTTPException(
+        status_code=status.HTTP_405_METHOD_NOT_ALLOWED,
+        detail="GET /logout is not supported for security reasons. Submit a POST request with valid CSRF token.",
+    )
 
 
 def get_common_context(
@@ -773,7 +825,7 @@ def add_manual_suppression(
     clean_email = email.strip().lower()
     existing = db.query(SuppressionEntry).filter_by(email=clean_email).first()
     if not existing:
-        entry = SuppressionEntry(email=clean_email, reason=reason, source="operator_web_ui")
+        entry = SuppressionEntry(email=clean_email, reason=reason)
         db.add(entry)
         db.commit()
     return RedirectResponse(url="/suppression", status_code=303)

@@ -2,6 +2,13 @@
  * IntentLead AI — Client Interactivity & UI Utilities
  */
 
+function getCsrfToken() {
+  const meta = document.querySelector('meta[name="csrf-token"]');
+  if (meta && meta.content) return meta.content;
+  const match = document.cookie.match(/(?:^|;\s*)intentlead_csrf=([^;]+)/);
+  return match ? decodeURIComponent(match[1]) : '';
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   // Mobile Sidebar Drawer Toggle
   const mobileToggle = document.getElementById('mobile-toggle');
@@ -110,6 +117,7 @@ async function handleLeadApproval(leadId, action) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'X-CSRF-Token': getCsrfToken(),
       },
       body: JSON.stringify({
         user_id: 'api_operator',
@@ -225,6 +233,7 @@ async function generateAiDraft(leadId, isRegenerate = false) {
       method: 'POST',
       headers: {
         'Accept': 'application/json',
+        'X-CSRF-Token': getCsrfToken(),
       },
     });
 
@@ -302,6 +311,7 @@ async function saveAiDraft(leadId) {
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
+        'X-CSRF-Token': getCsrfToken(),
       },
       body: JSON.stringify({
         subject: subject,

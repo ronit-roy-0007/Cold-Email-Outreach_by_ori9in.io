@@ -21,6 +21,7 @@
 
   <div class="card" style="padding: 2rem;">
     <form method="POST" action="/campaigns/new">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token or '' }}">
       
       <!-- Section 1: Target Definition -->
       <div style="margin-bottom: 1.75rem;">

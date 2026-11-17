@@ -156,16 +156,23 @@ def test_login_success_sets_session_cookies_and_redirects(clean_client, db_sessi
 
 
 def test_logout_invalidates_session_and_clears_cookies(clean_client, db_session, auth_settings):
+    from app.services.auth import generate_csrf_token
     op = ensure_bootstrap_operator(db_session, auth_settings)
     _, token = create_operator_session(db_session, op)
+    csrf_token = generate_csrf_token(token, auth_settings.SESSION_SECRET_KEY)
     clean_client.cookies.set(auth_settings.SESSION_COOKIE_NAME, token)
+    clean_client.cookies.set("intentlead_csrf", csrf_token)
 
     # Verify initially authorized
     res_before = clean_client.get("/")
     assert res_before.status_code == 200
 
-    # Logout
-    res_logout = clean_client.post("/logout")
+    # Logout without CSRF token is rejected with 403 Forbidden (CSRF defense)
+    res_no_csrf = clean_client.post("/logout")
+    assert res_no_csrf.status_code == 403
+
+    # Logout with valid CSRF token succeeds and redirects to /login
+    res_logout = clean_client.post("/logout", headers={"X-CSRF-Token": csrf_token})
     assert res_logout.status_code == 303
     assert res_logout.headers["location"] == "/login"
 

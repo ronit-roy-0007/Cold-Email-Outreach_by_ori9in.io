@@ -770,3 +770,267 @@ def test_redis_rate_limiter_observability_logging(caplog):
             for rec in caplog.records
         )
 
+
+# ==============================================================================
+# 7. CSRF Protection Invariants
+# ==============================================================================
+
+def test_csrf_protection_lifecycle(db_session, auth_settings):
+    from app.services.auth import create_operator_session, ensure_bootstrap_operator, generate_csrf_token
+
+    op1 = ensure_bootstrap_operator(db_session, auth_settings)
+    _, token1 = create_operator_session(db_session, op1, max_age_seconds=3600)
+    valid_csrf1 = generate_csrf_token(token1, auth_settings.SESSION_SECRET_KEY)
+
+    # Create second operator session to simulate another session's token
+    _, token2 = create_operator_session(db_session, op1, max_age_seconds=3600)
+    csrf2 = generate_csrf_token(token2, auth_settings.SESSION_SECRET_KEY)
+
+    app.dependency_overrides[get_session] = lambda: db_session
+    app.dependency_overrides[get_settings] = lambda: auth_settings
+
+    with TestClient(app) as client:
+        # 1. Unauthenticated mutation request fails with 401
+        res_unauth = client.post("/api/web/approvals/00000000-0000-0000-0000-000000000001", json={"user_id": "test", "action": "approve"})
+        assert res_unauth.status_code == 401
+
+        # Set session cookie for operator 1
+        client.cookies.set(auth_settings.SESSION_COOKIE_NAME, token1)
+
+        # 2. Authenticated browser request with Missing CSRF token fails with 403
+        res_missing = client.post("/api/web/approvals/00000000-0000-0000-0000-000000000001", json={"user_id": "test", "action": "approve"})
+        assert res_missing.status_code == 403
+        assert "CSRF token missing" in res_missing.json()["detail"]
+
+        # 3. Authenticated browser request with Invalid CSRF token fails with 403
+        res_invalid = client.post(
+            "/api/web/approvals/00000000-0000-0000-0000-000000000001",
+            json={"user_id": "test", "action": "approve"},
+            headers={"X-CSRF-Token": "invalid-garbage-token-string"},
+        )
+        assert res_invalid.status_code == 403
+        assert "Invalid or expired CSRF token" in res_invalid.json()["detail"]
+
+        # 4. Authenticated browser request with CSRF token from another session fails with 403
+        res_cross_session = client.post(
+            "/api/web/approvals/00000000-0000-0000-0000-000000000001",
+            json={"user_id": "test", "action": "approve"},
+            headers={"X-CSRF-Token": csrf2},
+        )
+        assert res_cross_session.status_code == 403
+        assert "Invalid or expired CSRF token" in res_cross_session.json()["detail"]
+
+        # 5. Authenticated browser request with Valid CSRF token succeeds (passes CSRF check; reaches handler logic)
+        res_valid = client.post(
+            "/api/web/approvals/00000000-0000-0000-0000-000000000001",
+            json={"user_id": "test", "action": "approve"},
+            headers={"X-CSRF-Token": valid_csrf1},
+        )
+        assert res_valid.status_code == 400  # CSRF passed! Reached route handler (lead not found -> 400)
+
+        # 6. Form-encoded request with valid csrf_token field succeeds
+        res_form_valid = client.post(
+            "/suppression/add",
+            data={"email": "test-suppress@example.com", "reason": "manual_optout", "csrf_token": valid_csrf1},
+            follow_redirects=False,
+        )
+        assert res_form_valid.status_code == 303
+
+        # 7. Form-encoded request with missing csrf_token fails with 403
+        res_form_missing = client.post(
+            "/suppression/add",
+            data={"email": "test-suppress-2@example.com", "reason": "manual_optout"},
+        )
+        assert res_form_missing.status_code == 403
+
+    app.dependency_overrides.clear()
+
+
+def test_csrf_dual_path_authentication(db_session):
+    from app.services.auth import create_operator_session, ensure_bootstrap_operator, generate_csrf_token
+
+    api_settings = Settings(
+        APP_ENV="production",
+        DATABASE_URL="sqlite:///:memory:",
+        API_KEY="super-secret-api-key-32chars-long",
+        FIELD_ENCRYPTION_KEY="prod-valid-encryption-key-passphrase",
+        CORS_ORIGINS="https://intentlead.agency",
+        UNSUBSCRIBE_SECRET="test-prod-unsub-secret-token",
+    )
+
+    op = ensure_bootstrap_operator(db_session, api_settings)
+    _, op_token = create_operator_session(db_session, op)
+    op_csrf = generate_csrf_token(op_token, api_settings.SESSION_SECRET_KEY)
+
+    app.dependency_overrides[get_session] = lambda: db_session
+    app.dependency_overrides[get_settings] = lambda: api_settings
+
+    with TestClient(app) as client:
+        fake_id = "00000000-0000-0000-0000-000000000001"
+
+        # 1. External API client succeeds with API Key WITHOUT any CSRF token
+        res_api = client.post(
+            f"/api/leads/{fake_id}/ai-generate",
+            headers={"X-API-Key": "super-secret-api-key-32chars-long"},
+        )
+        assert res_api.status_code == 404
+
+        # 2. Browser session with session cookie but WITHOUT CSRF token fails with 403
+        client.cookies.set(api_settings.SESSION_COOKIE_NAME, op_token)
+        res_browser_no_csrf = client.post(f"/api/leads/{fake_id}/ai-generate")
+        assert res_browser_no_csrf.status_code == 403
+        assert "CSRF token missing" in res_browser_no_csrf.json()["detail"]
+
+        # 3. Browser session with session cookie AND valid CSRF token succeeds
+        res_browser_with_csrf = client.post(
+            f"/api/leads/{fake_id}/ai-generate",
+            headers={"X-CSRF-Token": op_csrf},
+        )
+        assert res_browser_with_csrf.status_code == 404
+
+    app.dependency_overrides.clear()
+
+
+# ==============================================================================
+# 8. Campaign Import & Orchestrator Endpoint Protection
+# ==============================================================================
+
+def test_campaign_import_endpoint_api_key_protection(db_session):
+    api_settings = Settings(
+        APP_ENV="production",
+        DATABASE_URL="sqlite:///:memory:",
+        API_KEY="super-secret-api-key-32chars-long",
+        FIELD_ENCRYPTION_KEY="prod-valid-encryption-key-passphrase",
+        CORS_ORIGINS="https://intentlead.agency",
+        UNSUBSCRIBE_SECRET="test-prod-unsub-secret-token",
+    )
+    app.dependency_overrides[get_session] = lambda: db_session
+    app.dependency_overrides[get_settings] = lambda: api_settings
+
+    fake_campaign = "00000000-0000-0000-0000-000000000001"
+    csv_bytes = b"business_name,website,email\nTest Co,https://test.com,test@test.com\n"
+
+    with TestClient(app) as client:
+        # Missing key -> 401
+        res_missing = client.post(
+            f"/api/campaigns/{fake_campaign}/import",
+            files={"file": ("test.csv", csv_bytes, "text/csv")},
+        )
+        assert res_missing.status_code == 401
+
+        # Invalid key -> 401
+        res_invalid = client.post(
+            f"/api/campaigns/{fake_campaign}/import",
+            files={"file": ("test.csv", csv_bytes, "text/csv")},
+            headers={"X-API-Key": "wrong-key"},
+        )
+        assert res_invalid.status_code == 401
+
+        # Valid key -> passes auth (reaches 404 because campaign doesn't exist)
+        res_valid = client.post(
+            f"/api/campaigns/{fake_campaign}/import",
+            files={"file": ("test.csv", csv_bytes, "text/csv")},
+            headers={"X-API-Key": "super-secret-api-key-32chars-long"},
+        )
+        assert res_valid.status_code == 404
+        assert "Campaign not found" in res_valid.json()["detail"]
+
+    app.dependency_overrides.clear()
+
+
+def test_orchestrator_campaign_run_api_key_protection(db_session):
+    api_settings = Settings(
+        APP_ENV="production",
+        DATABASE_URL="sqlite:///:memory:",
+        API_KEY="super-secret-api-key-32chars-long",
+        FIELD_ENCRYPTION_KEY="prod-valid-encryption-key-passphrase",
+        CORS_ORIGINS="https://intentlead.agency",
+        UNSUBSCRIBE_SECRET="test-prod-unsub-secret-token",
+    )
+    app.dependency_overrides[get_session] = lambda: db_session
+    app.dependency_overrides[get_settings] = lambda: api_settings
+
+    payload = {"niche": "Roofing", "location": "Austin, TX"}
+
+    with TestClient(app) as client:
+        # Unauthenticated -> 401
+        res_missing = client.post("/api/orchestrator/campaign-run", json=payload)
+        assert res_missing.status_code == 401
+
+        # Invalid key -> 401
+        res_invalid = client.post(
+            "/api/orchestrator/campaign-run",
+            json=payload,
+            headers={"X-API-Key": "invalid-key"},
+        )
+        assert res_invalid.status_code == 401
+
+    app.dependency_overrides.clear()
+
+
+# ==============================================================================
+# 9. Telegram Webhook Fail-Closed Security
+# ==============================================================================
+
+def test_telegram_webhook_fail_closed_in_production(db_session):
+    # 1. Missing TELEGRAM_WEBHOOK_SECRET in production rejects request with 403
+    prod_no_secret = Settings(
+        APP_ENV="production",
+        DATABASE_URL="sqlite:///:memory:",
+        TELEGRAM_WEBHOOK_SECRET="",
+    )
+    app.dependency_overrides[get_session] = lambda: db_session
+    app.dependency_overrides[get_settings] = lambda: prod_no_secret
+
+    with TestClient(app) as client:
+        res = client.post("/api/orchestrator/webhooks/telegram", json={"update_id": 123})
+        assert res.status_code == 403
+        assert "not configured in production" in res.json()["detail"]
+
+    # 2. Configured secret in production: missing header -> 403
+    prod_with_secret = Settings(
+        APP_ENV="production",
+        DATABASE_URL="sqlite:///:memory:",
+        TELEGRAM_WEBHOOK_SECRET="secure-tg-secret-999",
+    )
+    app.dependency_overrides[get_settings] = lambda: prod_with_secret
+
+    with TestClient(app) as client:
+        res_no_header = client.post("/api/orchestrator/webhooks/telegram", json={"update_id": 123})
+        assert res_no_header.status_code == 403
+        assert "Missing Telegram secret token header" in res_no_header.json()["detail"]
+
+        # Invalid token -> 403
+        res_bad_token = client.post(
+            "/api/orchestrator/webhooks/telegram",
+            json={"update_id": 123},
+            headers={"X-Telegram-Bot-Api-Secret-Token": "wrong-secret"},
+        )
+        assert res_bad_token.status_code == 403
+        assert "Invalid Telegram webhook secret token" in res_bad_token.json()["detail"]
+
+        # Valid token -> succeeds and proceeds to telegram update handler
+        res_ok = client.post(
+            "/api/orchestrator/webhooks/telegram",
+            json={"update_id": 123, "message": {"text": "/start", "from": {"id": 999999}}},
+            headers={"X-Telegram-Bot-Api-Secret-Token": "secure-tg-secret-999"},
+        )
+        assert res_ok.status_code == 403
+        assert "not authorized" in res_ok.json()["detail"].lower()
+
+    # 3. Startup validation for webhook mode
+    from app.config import SecurityConfigError, validate_production_security
+    prod_bad_webhook_mode = Settings(
+        APP_ENV="production",
+        DATABASE_URL="postgresql://user:pass@localhost:5432/db",
+        FIELD_ENCRYPTION_KEY="prod-valid-encryption-key-passphrase",
+        CORS_ORIGINS="https://intentlead.agency",
+        UNSUBSCRIBE_SECRET="test-production-unsubscribe-secret-32b",
+        TELEGRAM_MODE="webhook",
+        TELEGRAM_WEBHOOK_SECRET="",
+    )
+    with pytest.raises(SecurityConfigError, match="TELEGRAM_WEBHOOK_SECRET must be configured"):
+        validate_production_security(prod_bad_webhook_mode)
+
+    app.dependency_overrides.clear()
+

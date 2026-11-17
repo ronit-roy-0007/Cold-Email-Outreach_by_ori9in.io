@@ -95,12 +95,13 @@ def get_campaign_endpoint(
     }
 
 
-@router.post("/{campaign_id}/import")
+@router.post("/{campaign_id}/import", dependencies=[Depends(check_rate_limit)])
 async def import_listings_endpoint(
     campaign_id: uuid.UUID,
     file: UploadFile = File(...),
     db: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
+    _: str = Depends(verify_api_key),
 ) -> dict[str, Any]:
     campaign = get_campaign(db, campaign_id)
     if not campaign:
