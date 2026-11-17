@@ -1351,7 +1351,7 @@ def handle_telegram_update(
                 .count()
             )
 
-            if camp.is_exhausted and unattempted == 0:
+            if unattempted == 0 or (camp.is_exhausted and unattempted < camp.requested_quantity):
                 next_loc = get_next_expansion_location(camp.location, camp.expanded_locations)
                 prompt, buttons = build_expansion_prompt(
                     camp=camp,
@@ -1407,7 +1407,7 @@ def handle_telegram_update(
                 .count()
             )
 
-            if unattempted < camp.requested_quantity and camp.is_exhausted:
+            if unattempted == 0 or (camp.is_exhausted and unattempted < camp.requested_quantity):
                 next_loc = get_next_expansion_location(camp.location, camp.expanded_locations)
                 prompt, buttons = build_expansion_prompt(
                     camp=camp,
@@ -1545,7 +1545,7 @@ def handle_telegram_update(
                     .count()
                 )
 
-                if unattempted < camp.requested_quantity and camp.is_exhausted:
+                if unattempted == 0 or (camp.is_exhausted and unattempted < camp.requested_quantity):
                     next_loc = get_next_expansion_location(camp.location, camp.expanded_locations)
                     prompt, buttons = build_expansion_prompt(
                         camp=camp,
@@ -1562,6 +1562,18 @@ def handle_telegram_update(
                 db.commit()
                 text, files = deliver_campaign_final_csvs(db, camp, settings, user_id, bench_score)
                 return {"status": "success", "reply": text, "files": files}
+
+            if unattempted == 0:
+                next_loc = get_next_expansion_location(camp.location, camp.expanded_locations)
+                prompt, buttons = build_expansion_prompt(
+                    camp=camp,
+                    current_search_loc=current_search_loc,
+                    next_loc=next_loc,
+                    qualified_count=unattempted,
+                    target_count=camp.requested_quantity,
+                    bench_score=bench_score,
+                )
+                return {"status": "paused_exhaustion", "reply": prompt, "buttons": buttons}
 
             prompt = (
                 f"⏸️ *Sub-Campaign Batch Paused*\n"

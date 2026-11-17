@@ -285,36 +285,41 @@ def run_campaign(
                 sender_name=sender_name,
             )
 
-            # Check if we reached target qualified count
-            if min_score > 0:
-                qualified_count = (
-                    session.query(Lead)
-                    .filter(Lead.campaign_id == campaign.id, Lead.overall_score >= min_score)
-                    .count()
-                )
-                if qualified_count >= target_qualified:
-                    campaign.is_exhausted = False
-                    break
-
-                # If no new businesses were added in this attempt, this specific location is exhausted
-                if not job_res.results or added == 0:
-                    campaign.is_exhausted = True
-                    break
-            else:
-                if not job_res.results or added == 0:
-                    campaign.is_exhausted = True
-                else:
-                    campaign.is_exhausted = False
+            # If no new businesses were added in this attempt, this specific location is exhausted
+            if not job_res.results or added == 0:
+                campaign.is_exhausted = True
                 break
 
-        # If after all scrape attempts, qualified count is still less than requested, location is exhausted
+            # Check if we reached target unattempted qualified count
+            if min_score > 0:
+                unattempted_count = (
+                    session.query(Lead)
+                    .filter(
+                        Lead.campaign_id == campaign.id,
+                        Lead.overall_score >= min_score,
+                        Lead.outreach_status.in_(["draft", "approved"]),
+                    )
+                    .count()
+                )
+                if unattempted_count >= target_qualified:
+                    campaign.is_exhausted = False
+                    break
+            else:
+                campaign.is_exhausted = False
+                break
+
+        # If after all scrape attempts, unattempted qualified count is still less than requested, location is exhausted
         if min_score > 0:
-            final_qualified = (
+            final_unattempted = (
                 session.query(Lead)
-                .filter(Lead.campaign_id == campaign.id, Lead.overall_score >= min_score)
+                .filter(
+                    Lead.campaign_id == campaign.id,
+                    Lead.overall_score >= min_score,
+                    Lead.outreach_status.in_(["draft", "approved"]),
+                )
                 .count()
             )
-            if final_qualified < target_qualified:
+            if final_unattempted < target_qualified:
                 campaign.is_exhausted = True
 
         if campaign.is_auto_mode and campaign.target_sent_emails and campaign.total_sent_emails < campaign.target_sent_emails:
