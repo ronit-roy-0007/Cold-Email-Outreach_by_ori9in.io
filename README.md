@@ -1,375 +1,178 @@
 # IntentLead AI 🚀
 
-**Autonomous Google Maps Lead Discovery, Website Intelligence & Multi-Mailbox Gmail Outreach Platform**
+**Autonomous B2B Lead Intelligence, Evidence-Based Qualification & Multi-Mailbox Outreach Platform**
 
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-blue.svg)](https://www.python.org/)
-[![Framework FastAPI](https://img.shields.io/badge/Framework-FastAPI-009688.svg)](https://fastapi.tiangolo.com/)
-[![Scraper Scrapling](https://img.shields.io/badge/Scraper-Scrapling%20%2B%20Patchright-ff69b4.svg)](https://github.com/D4Vinci/Scrapling)
-[![Telegram Bot](https://img.shields.io/badge/Telegram-Maxxy%20Bot-2CA5E0.svg)](https://telegram.org/)
-[![CI Status](https://img.shields.io/badge/CI-Passing-brightgreen.svg)](.github/workflows/ci.yml)
-[![Security Bandit](https://img.shields.io/badge/Security-Bandit%20Audited-success.svg)](https://bandit.readthedocs.io/)
-[![License MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![FastAPI](https://img.shields.io/badge/Framework-FastAPI-009688.svg)](https://fastapi.tiangolo.com/)
+[![PostgreSQL](https://img.shields.io/badge/Database-PostgreSQL%2016-336791.svg)](https://www.postgresql.org/)
+[![Redis](https://img.shields.io/badge/Cache-Redis%207-DC382D.svg)](https://redis.io/)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![Safety](https://img.shields.io/badge/Safety-Dry--Run%20Enforced-green.svg)](#outreach-safety-controls)
 
-IntentLead AI is an open-source, evidence-led prospect discovery and outreach engine. Unlike generic scrapers that blast unverified lists, IntentLead combines stealth Google Maps discovery, concurrent website reconnaissance (extracting verified emails, social profiles, and missing tech gaps), AI/plain-text pitch generation, and an interactive Telegram bot command center—all safely dispatched through a multi-mailbox Gmail pool with automated rate limiting and deliverability gates.
+IntentLead AI is an open-source, self-hosted lead acquisition and cold outreach automation platform. Unlike generic mass-email tools that blast unverified lists, IntentLead combines stealth Google Maps discovery, concurrent website reconnaissance, evidence-based intent scoring, hyper-personalized AI pitch generation, and an interactive 7-step Telegram operator bot—all safely dispatched through a rotating multi-mailbox pool with automated deliverability pacing and multi-touch follow-up scheduling.
 
 ---
 
-## 🏗️ Architecture Overview
+## 🌟 Key Capabilities
 
+- **Stealth Business Discovery**: Harvests local businesses via Google Maps using Scrapling (Patchright + curl_cffi) or modular scraper backends.
+- **Deep Website Reconnaissance**: Crawls prospect websites to detect concrete technical and conversion gaps (missing mobile responsiveness, lack of appointment booking, missing 24/7 AI chat, slow lead intake).
+- **Evidence-Based Intent Scoring (0–100)**: Evaluates prospect friction and qualifies high-intent opportunities against configurable benchmark thresholds.
+- **AI-Powered Personalization**: Crafts hyper-personalized 3-sentence pain-point pitches using Google Gemini 1.5 Flash (with sliding-window rate limiting) or OpenAI-compatible gateways.
+- **Proven High-Converting Template Option**: Allows operators to toggle between bespoke AI audits and proven conversion-tested outreach copy.
+- **Multi-Mailbox Pool Rotation**: Distributes outbound volume across multiple Gmail / Google Workspace / SMTP accounts with daily volume limits (`MAX_EMAILS_PER_DAY=40`) and human pacing.
+- **7-Step Telegram Command Center**: Full mobile control via an authorized Telegram bot—discover leads, approve pitches, review campaign metrics, and receive instant reply alerts.
+- **Intelligent Follow-Up Scheduler**: Persistent multi-touch sequences supporting business-day calculations (skipping weekends), calendar days, or single-touch outreach.
+- **Inbound Conversation Management**: Integrates SendGrid Inbound Parse, Postmark, and generic webhooks with atomic Redis replay protection (`SET NX`) and strict XSS sanitization.
+- **Regulatory Compliance & Safety**: Enforces CAN-SPAM and GDPR requirements with signed one-click unsubscribes, physical agency address footers, permanent suppression lists, and a default `OUTREACH_DRY_RUN=true` safety switch.
+
+---
+
+## 🏗️ System Architecture
+
+```text
+                           ┌────────────────────────────────────────┐
+                           │      Telegram Operator Bot             │
+                           │   (/findleads, /status, /review)       │
+                           └───────────────────┬────────────────────┘
+                                               │
+                                               ▼
+                           ┌────────────────────────────────────────┐
+                           │      Stealth Discovery Engine          │
+                           │   (Scrapling + Google Maps Scraper)    │
+                           └───────────────────┬────────────────────┘
+                                               │
+                                               ▼
+                           ┌────────────────────────────────────────┐
+                           │     Website Reconnaissance Crawler     │
+                           │   - Verified Email & Social extraction │
+                           │   - SSRF Guard & IP Range Blocker      │
+                           │   - Technical Gap & Friction Detection │
+                           └───────────────────┬────────────────────┘
+                                               │
+                                               ▼
+                           ┌────────────────────────────────────────┐
+                           │    Scoring & Personalization Engine    │
+                           │   - 0–100 Evidence-Based Score         │
+                           │   - Gemini 1.5 Pitch Generation        │
+                           │   - Gate 0 Human Approval Review       │
+                           └───────────────────┬────────────────────┘
+                                               │
+                                               ▼
+                           ┌────────────────────────────────────────┐
+                           │     Multi-Mailbox Dispatch Pool        │
+                           │   - Round-robin mailbox rotation       │
+                           │   - Daily sending caps (40/day)        │
+                           │   - Warmup pacing & jitter delays      │
+                           └───────────────────┬────────────────────┘
+                                               │
+                                               ▼
+                           ┌────────────────────────────────────────┐
+                           │    Multi-Touch Follow-Up Engine        │
+                           │   - Calendar & Business day schedules  │
+                           │   - Auto-cancel on reply or opt-out    │
+                           │   - Unified Inbox & Conversation sync  │
+                           └────────────────────────────────────────┘
 ```
-                      ┌──────────────────────────────────────┐
-                      │      Telegram Command Center         │
-                      │   (/findleads, /status, /addemail)   │
-                      └──────────────────┬───────────────────┘
-                                         │
-                                         ▼
-                      ┌──────────────────────────────────────┐
-                      │    Stealth Discovery & Scraping      │
-                      │ (Scrapling + Patchright + curl_cffi) │
-                      │   - Google Maps listing harvester    │
-                      │   - Multi-ring geographic expansion  │
-                      └──────────────────┬───────────────────┘
-                                         │
-                                         ▼
-                      ┌──────────────────────────────────────┐
-                      │     Concurrent Website Crawler       │
-                      │   - Verified Email & Social links    │
-                      │   - Tech stack & gap detection       │
-                      │   - Review sentiment & rating audit  │
-                      └──────────────────┬───────────────────┘
-                                         │
-                                         ▼
-                      ┌──────────────────────────────────────┐
-                      │     Scoring & Copywriting Engine     │
-                      │   - 0–100 benchmark qualification    │
-                      │   - Clean 1-on-1 casual outreach     │
-                      │   - Gemini AI 3-sentence pain-point  │
-                      └──────────────────┬───────────────────┘
-                                         │
-                                         ▼
-                      ┌──────────────────────────────────────┐
-                      │   Deliverability Pre-Flight Gate     │
-                      │   - Syntax & suppression blacklist   │
-                      │   - DNS MX + RFC 7505 Null MX check  │
-                      └──────────────────┬───────────────────┘
-                                         │
-                                         ▼
-                      ┌──────────────────────────────────────┐
-                      │     Multi-Mailbox Dispatcher         │
-                      │   - Sequential round-robin rotation  │
-                      │   - Survivor mailbox pacing guard    │
-                      │   - 50 emails/day per Gmail account  │
-                      └──────────────────────────────────────┘
-```
 
 ---
 
-## ✨ Key Features
-
-* **Stealth Google Maps Scraper:** Built with [Scrapling](https://github.com/D4Vinci/Scrapling) and `patchright` (stealth Playwright chromium) with `curl_cffi` impersonation to bypass Google bot checks and scrape listings without getting blocked.
-* **Concurrent Website Reconnaissance:** Automatically visits discovered business websites to extract contact emails, about pages, and social media profiles (Instagram, LinkedIn, Facebook, Twitter, YouTube).
-* **Concentric Geographic Radius Expansion:** When a primary search location (e.g. *New York*) reaches saturation, the system automatically expands across concentric geographic rings (e.g. *Brooklyn → Queens → Jersey City*) to fulfill lead quotas.
-* **Multi-Mailbox Pool Rotation:** Distributes outreach sequentially across an unlimited pool of connected Gmail accounts (`smtp.gmail.com:587`), preventing burst spikes and maintaining healthy domain reputation.
-* **Smart Deliverability Pre-Flight Gate:** Pre-validates every recipient before dispatch. Checks email syntax, suppression blacklists, DNS MX records, and automatically blocks domains with **RFC 7505 Null MX** records.
-* **Survivor Mailbox Pacing & Jitter Guard:** Applies randomized human delays (5–8s in normal pool; 30–40s cooldown if fewer than 3 mailboxes remain active) to eliminate automated sending patterns.
-* **High-Converting Plain-Text Copywriting:** Delivers 100% human-looking emails. Strips out corporate marketing disclaimers, fake Delaware addresses, and tracking links that trigger spam filters.
-* **Interactive Telegram Bot:** Control entire outreach campaigns from your phone using Telegram: start campaigns, approve batches, toggle Auto Mode, inspect leads, and download CSV reports directly in chat.
-* **Optional Gemini AI Personalization:** Deeply personalizes pitches using Google Gemini based on specific audited website pain points (missing appointment calendars, lack of 24/7 chat support, outdated mobile layout).
-
----
-
-## 📊 Feature Comparison Matrix
-
-| Feature Capability | IntentLead AI | Legacy Scrapers (Outscraper / Octoparse) | Commercial Platforms (Instantly / Apollo) |
-| :--- | :---: | :---: | :---: |
-| **Discovery Source** | Live Google Maps + Website Crawler | Static directory database | Pre-scraped static databases |
-| **Email Verification** | In-flight DNS MX + RFC 7505 Null MX | None (frequent 550 bounces) | Proprietary external credit check |
-| **Anti-Bot Defense** | Scrapling + Patchright + TLS Fingerprinting | Basic proxy rotation | Cloud-hosted dashboard |
-| **Outreach Medium** | Multi-Mailbox Gmail Pool (SMTP) | CSV Export Only | Dedicated warm-up domains |
-| **Deliverability Safeguards** | Survivor Jitter Pacing + Blacklist Suppression | None | Configurable daily limits |
-| **Interactive Control** | Mobile Telegram Bot (/findleads, Auto Mode) | Web GUI / API | Web GUI only |
-| **Cost & Data Privacy** | 100% Free & Self-Hosted (MIT License) | \$0.03 – \$0.10 per row | \$97 – \$350 / month |
-
----
-
-## 🛠️ Technology Stack
-
-- **Application Backend:** Python 3.12, [FastAPI](https://fastapi.tiangolo.com/), Pydantic v2, Uvicorn (ASGI)
-- **Scraping & Stealth Engine:** [Scrapling](https://github.com/D4Vinci/Scrapling), Patchright (Chromium), `curl_cffi` TLS impersonation
-- **Data Persistence:** SQLAlchemy 2.0 ORM, [Alembic](https://alembic.sqlalchemy.org/) schema migrations, SQLite 3 (local dev) / PostgreSQL 16 (production)
-- **Email & Deliverability:** Python `smtplib`, `dnspython` (RFC 7505 Null MX validation), HMAC tokenized unsubscribe headers
-- **Quality & Security Tooling:** Pytest (126 automated tests), Ruff linter, Bandit static analysis, GitHub Actions CI
-
-
----
-
-## 📋 Prerequisites
-
-* **Operating System:** Windows 10/11, macOS, or Linux
-* **Python:** 3.12 or newer
-* **Gmail Accounts:** 1 or more Gmail accounts with **2-Step Verification** and a generated **16-character Google App Password**
-* **Telegram Bot:** A bot token from [@BotFather](https://t.me/BotFather) and your numeric Telegram user ID from [@userinfobot](https://t.me/userinfobot)
-
----
-
-## 🚀 Installation & Setup Guide
+## ⚡ Quickstart with Docker Compose
 
 ### 1. Clone the Repository
-
 ```bash
-git clone https://github.com/your-username/intentlead-ai.git
-cd intentlead-ai
+git clone https://github.com/your-org/IntentLead-AI.git
+cd IntentLead-AI
 ```
 
-### 2. Create Virtual Environment & Install Dependencies
-
+### 2. Configure Environment
 ```bash
-# Windows (PowerShell)
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-
-# Linux / macOS
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-### 3. Install Browser & Stealth Fetcher Dependencies
-
-```bash
-scrapling install
-python -m patchright install chromium
-```
-
-### 4. Configure Environment Variables
-
-Copy the example environment template:
-
-```bash
-cp .env.example .env
-```
-
-Open `.env` and fill in your details:
-
-```env
-# Application Mode & Database
-APP_ENV=development
-DATABASE_URL=sqlite:///./intentlead.db
-DISCOVERY_PROVIDER=scrapling
-
-# Agency Identity
-AGENCY_NAME=YourAgency.io
-AGENCY_SENDER_NAME=YourName
-
-# Outreach Safety (set to false for live sending)
-OUTREACH_DRY_RUN=false
-
-# Telegram Bot Credentials
-TELEGRAM_BOT_TOKEN=1234567890:ABCdefGHIjklMNOpqrsTUVwxyz
-TELEGRAM_ALLOWED_USER_ID=6107263210
-
-# Primary Mailbox Settings (Fallback)
-EMAIL_PROVIDER=smtp
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USER=youremail@gmail.com
-SMTP_PASSWORD=abcd efgh ijkl mnop
-SMTP_USE_TLS=true
-MAX_EMAILS_PER_DAY=40
-ENABLE_DISPATCH_PACING=true
-
-# Optional: Google Gemini API (for AI personalization)
-USER_LLM_API_KEY=AIzaSy...
-USER_LLM_MODEL=gemini-1.5-flash
-```
-
-### 5. Configure Your Mailbox Pool (Optional)
-
-You can define multiple Gmail sending accounts in `mailboxes.json`:
-
-```bash
-cp mailboxes.example.json mailboxes.json
-```
-
-Edit `mailboxes.json`:
-```json
-[
-  {
-    "email": "outreach1@gmail.com",
-    "password": "abcd efgh ijkl mnop",
-    "sender_name": "Ronit",
-    "daily_limit": 40,
-    "is_active": true
-  },
-  {
-    "email": "outreach2@gmail.com",
-    "password": "qrst uvwx yzab cdef",
-    "sender_name": "Ronit",
-    "daily_limit": 40,
-    "is_active": true
-  }
-]
-```
-
-*(Note: You can also add mailboxes dynamically from Telegram at any time using `/addemailaddress`!)*
-
----
-
-## 🤖 Starting the Telegram Bot Daemon
-
-To launch the background Telegram bot poller:
-
-```powershell
-# Windows (PowerShell)
-$env:PYTHONPATH = "apps/intelligence-api"
-python scripts/telegram_poller.py
-
-# Linux / macOS
-export PYTHONPATH="apps/intelligence-api"
-python3 scripts/telegram_poller.py
-```
-
-Once running, you will see:
-```text
-[INFO] Synced native Telegram commands menu: {"ok":true,"result":true}
-[INFO] Starting Telegram Poller for agency 'YourAgency.io'...
-[INFO] Waiting for Telegram commands (/findleads, /status, /export_csv)...
-```
-
----
-
-## 📱 Telegram Commands Reference
-
-Open your Telegram bot chat and use the following commands:
-
-| Command | Usage | Description |
-| :--- | :--- | :--- |
-| `/findleads` | `/findleads [Niche] in [City] [TargetCount] [MinScore]` | Launches a lead generation campaign (e.g. `/findleads Real Estate in Brooklyn 50 40`). |
-| `/provider` | `/provider` or `/set_provider <name>` | Check or switch scraping engine (Scrapling, Go Scraper, Mock) & email provider. |
-| `/live` / `/dryrun` | `/live` or `/dryrun` | Toggle between live email sending and safe simulation mode (check with `/mode`). |
-| `/status` | `/status` | Displays real-time progress of active campaigns and mailbox usage. |
-| `/export_csv` | `/export_csv` | Generates and sends a CSV of all qualified and contacted prospects. |
-| `/addemailaddress` | `/addemailaddress <email> <app_password>` | Dynamically tests and adds a new Gmail account into your live sending pool. |
-| `/showpriority` | `/showpriority` | Lists top-scored leads waiting for review. |
-
-### Interactive Campaign Workflow:
-1. **Interactive Wizard:** Choose niche, location, quantity, and outreach mode (Generic High-Reply or AI-Personalized).
-2. **Review & Preview:** Maxxy delivers a preview CSV with all discovered leads and evidence scores.
-3. **Dispatch Options:**
-   * **Approve Batch 1:** Dispatches the first batch of leads and pauses for review.
-   * **🤖 Auto Mode:** Continuously discovers, scrapes, audits, and delivers emails until your exact target (e.g. 50 sent emails) is fulfilled.
-4. **Final Deliverables:** Automatically sends the final campaign CSV deliverables to your chat upon completion.
-
----
-
-## 🛡️ Deliverability & Safe Sending Guidelines
-
-To maintain **100% inbox placement** and keep your Gmail accounts in peak standing:
-
-1. **Volume Scaling:**
-   * **New Accounts (< 3 months old):** Keep at 10–20 emails/day.
-   * **Aged Accounts (6+ months old):** Can safely send 30–40 emails/day.
-   * *Formula:* If you need 500 emails/day, use **12 to 15 Gmail accounts** rather than overloading 2 accounts.
-2. **Sequential Spacing:** The system automatically cycles across all active accounts. With 7 accounts, each account naturally rests for ~45–75 seconds between dispatches.
-3. **App Passwords:** Always generate dedicated App Passwords from Google Account Settings > Security > 2-Step Verification > App Passwords.
-
----
-
-## 🧪 Running the Test Suite
-
-The project includes comprehensive test suites covering scraper deduplication, geo-expansion, mailbox rotation, MX preflight gates, and interactive subcampaign loops:
-
-```bash
-# Run all unit and integration tests
-cd apps/intelligence-api
-$env:PYTHONPATH = "."
-pytest -v
-```
-
----
-
-## 📁 Repository Structure
-
-```text
-├── apps/
-│   └── intelligence-api/
-│       ├── app/
-│       │   ├── api/             # FastAPI REST endpoints
-│       │   ├── providers/       # Scrapling Google Maps client & fetchers
-│       │   ├── scoring/         # Deterministic lead qualification engine
-│       │   ├── services/        # Email dispatcher, mailbox pool, telegram bot
-│       │   ├── config.py        # Centralized settings & environment loader
-│       │   ├── db.py            # SQLAlchemy database engine
-│       │   └── models.py        # Database ORM models
-│       ├── tests/               # 80+ unit and integration test fixtures
-│       └── requirements.txt     # Python dependencies
-├── scripts/
-│   └── telegram_poller.py       # Telegram polling daemon
-├── .env.example                 # Example configuration template
-├── mailboxes.example.json       # Example mailbox pool structure
-├── requirements.txt             # Root requirements pointer
-└── README.md                    # Project documentation
-```
-
----
-
-## 🐳 Docker Production Deployment
-
-IntentLead AI is fully containerized with automated PostgreSQL health-checks and migrations:
-
-```bash
-# 1. Configure production environment
+# Linux / macOS:
 cp .env.example .env
 
-# 2. Build and launch services with Docker Compose
+# Windows (PowerShell):
+Copy-Item .env.example .env
+```
+Open `.env` and set your credentials:
+```bash
+# Telegram Operator Bot (from @BotFather)
+TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here
+TELEGRAM_ALLOWED_USER_ID=your_numeric_telegram_user_id
+
+# Google Gemini AI Key (from aistudio.google.com)
+USER_LLM_API_KEY=your_gemini_api_key_here
+
+# Cryptographic Keys (generate 32-char random strings)
+FIELD_ENCRYPTION_KEY=your_32_character_encryption_key_here
+UNSUBSCRIBE_SECRET=your_32_character_unsub_secret_here
+```
+
+### 3. Launch Services
+```bash
 docker compose up -d --build
-
-# 3. View live logs
-docker compose logs -f api
+```
+Access the Web Dashboard at:
+```text
+http://localhost:8000
 ```
 
-### Health & Observability Endpoints
-- **Liveness Probe:** `GET http://localhost:8000/health/live`
-- **Readiness Probe:** `GET http://localhost:8000/health/ready` (tests database connection & reports operational mode)
-- **Outreach Telemetry:** `GET http://localhost:8000/api/outreach/stats` (live daily quota usage and bounce metrics)
+---
+
+## 📚 Documentation Directory
+
+Complete setup, operational, and architectural documentation is available in the [`docs/`](docs/) directory:
+
+- **Deployment & Installation**:
+  - [Universal Installation Guide](docs/installation.md)
+  - [Windows 10/11 Guide](docs/windows-installation.md)
+  - [Linux (Debian/Ubuntu/RHEL) Guide](docs/linux-installation.md)
+  - [macOS (Apple Silicon & Intel) Guide](docs/macos-installation.md)
+  - [Ubuntu VPS Production Deployment Guide](docs/vps-deployment.md)
+- **Configuration & Integrations**:
+  - [Full Configuration Reference (.env)](docs/configuration.md)
+  - [Telegram Bot Operator Guide](docs/telegram-setup.md)
+  - [AI Provider & Personalization Guide](docs/ai-provider-setup.md)
+  - [Email Provider & Mailbox Pool Guide](docs/email-provider-setup.md)
+  - [DNS Email Authentication (SPF, DKIM, DMARC)](docs/dns-email-setup.md)
+- **Security, Privacy & Operations**:
+  - [Security Architecture & Threat Model](docs/security.md)
+  - [Privacy & Regulatory Compliance (CAN-SPAM/GDPR)](docs/privacy.md)
+  - [Backup, Restore & Disaster Recovery](docs/backup-restore.md)
+  - [Upgrading & Database Migrations](docs/upgrading.md)
+  - [Troubleshooting & Diagnostics](docs/troubleshooting.md)
+  - [Frequently Asked Questions (FAQ)](docs/faq.md)
+  - [Technical Architecture Specification](docs/architecture.md)
 
 ---
 
-## 🔒 Security Hardening
+## 🛡️ Outreach Safety Controls
 
-- **API Key Protection:** Set `API_KEY=your_secret` to enforce `X-API-Key` or `Authorization: Bearer` on all `/api/*` endpoints.
-- **SSRF Immunity:** Outbound website audits validate URLs with IP range blocking against RFC 1918 private subnets and loopback interfaces (`127.0.0.1`, `10.0.0.0/8`, `192.168.0.0/16`, `169.254.169.254`).
-- **Sliding-Window Rate Limiting:** Built-in IP rate limiter defends against scraping and Denial-of-Service attacks.
-- **Zero-Credential Logging:** Sensitive SMTP credentials and API keys are redacted from logs and exception traces.
-
----
-
-## 🗺️ Product Roadmap
-
-- [x] Stealth Google Maps Discovery via Scrapling + Patchright
-- [x] Concurrent Website Audit & Email Extraction
-- [x] Multi-Mailbox Gmail Pool Rotation & Survivor Pacing
-- [x] Telegram Bot Mobile Control & Sub-Campaign Precision Stopping
-- [x] Automated Hard Bounce & Spam Complaint Suppression Webhook
-- [ ] Multi-touch Follow-Up Sequences (Day 3 & Day 7 drip cadence)
-- [ ] AI Sentiment Reply Classifier (interested / meeting / not interested)
-- [ ] Webhook integration for HubSpot & Pipedrive CRM sync
+IntentLead AI is engineered with defensive safeguards:
+- **Default Simulation Dry-Run**: `OUTREACH_DRY_RUN=true` is strictly enabled by default. Outbound dispatches are simulated and recorded to the database without sending live emails.
+- **Explicit Live Activation**: To dispatch real emails, an operator must deliberately set `OUTREACH_DRY_RUN=false` or send `/live` in Telegram.
+- **Pre-Flight Deliverability Gates**: Every recipient address is evaluated for syntax validity, disposable domain exclusion, MX record existence, and suppression list membership before dispatch.
+- **Automatic Reply Cancellation**: Inbound prospect replies immediately cancel any scheduled follow-up touches to prevent accidental double-messaging.
 
 ---
 
-## 🤝 Contributing
+## 🧪 Testing & Verification
 
-Contributions are welcome! Please ensure that:
-1. All changes include automated tests under `apps/intelligence-api/tests/`.
-2. Tests pass cleanly with `pytest apps/intelligence-api/tests`.
-3. Code conforms to Ruff guidelines: `ruff check apps/intelligence-api/app`.
-4. Open a pull request against `main` for review.
+Run the test suites locally:
+```bash
+# Telegram Bot test suite
+$env:PYTHONPATH="apps/intelligence-api"
+pytest apps/intelligence-api/tests/test_telegram.py
+
+# Complete 15-Workflow Operational Acceptance Suite
+python scripts/test_operational_acceptance.py
+
+# Telegram Live Runtime Requirements & Secret Audit
+python scripts/verify_telegram_runtime_requirements.py
+```
 
 ---
 
-## ⚖️ License & Ethical Usage
+## 📄 License & Attribution
 
-This software is released under the [MIT License](LICENSE).
-
-**Ethical Scraping & Outreach Notice:** This tool is intended for B2B relationship building and legitimate business inquiries. Always respect local privacy and communications regulations (including CAN-SPAM, GDPR, and CASL). Never use this system for unsolicited bulk consumer spam.
+IntentLead AI is open-source software licensed under the **[Apache License 2.0](LICENSE)**.
+Third-party component notices and licenses are detailed in **[NOTICE](NOTICE)**.

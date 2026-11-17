@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-11-17T06:35:29.947042+00:00",
+  "timestamp": "2026-11-17T07:30:45.295602+00:00",
   "operator_id": "6107263210",
   "outreach_dry_run": true,
   "results": {
@@ -10,15 +10,15 @@
   },
   "evidence": {
     "requirement_1": {
-      "question_6a_msg_id": 719,
-      "question_7a_msg_id": 720,
-      "question_7b_msg_id": 721,
+      "question_6a_msg_id": 750,
+      "question_7a_msg_id": 751,
+      "question_7b_msg_id": 752,
       "yes_template_choice": true,
       "no_template_choice": false
     },
     "requirement_2": {
       "Standard": {
-        "campaign_id": "8b6d8e1c-88cc-410e-923c-dc2a6aa955bd",
+        "campaign_id": "466246ec-2133-450b-8657-32cdb7c9a3d2",
         "followup_sequence": {
           "enabled": true,
           "count": 2,
@@ -29,11 +29,11 @@
           "schedule_type": "calendar",
           "final_action": "close"
         },
-        "confirm_msg_id": 722,
-        "launch_msg_id": 725
+        "confirm_msg_id": 753,
+        "launch_msg_id": 756
       },
       "Business Days": {
-        "campaign_id": "15c73cdb-0de5-44ca-a88b-b8912947db80",
+        "campaign_id": "e7fe555d-efbd-4786-85b8-c54b0ecb4c78",
         "followup_sequence": {
           "enabled": true,
           "count": 2,
@@ -44,11 +44,11 @@
           "schedule_type": "business",
           "final_action": "close"
         },
-        "confirm_msg_id": 726,
-        "launch_msg_id": 729
+        "confirm_msg_id": 757,
+        "launch_msg_id": 760
       },
       "Single Touch": {
-        "campaign_id": "fb70bece-42e6-49fa-9d39-b2dc3217ebfb",
+        "campaign_id": "59851ded-ba4d-4a81-87a2-4034f16e0c45",
         "followup_sequence": {
           "enabled": false,
           "count": 0,
@@ -56,11 +56,11 @@
           "schedule_type": "calendar",
           "final_action": "close"
         },
-        "confirm_msg_id": 730,
-        "launch_msg_id": 733
+        "confirm_msg_id": 761,
+        "launch_msg_id": 764
       },
       "Custom": {
-        "campaign_id": "1477af29-d3aa-40b0-880b-d9023c4a8ca5",
+        "campaign_id": "9a6e4331-c5cb-4ea9-8251-57ec3bcb2fad",
         "followup_sequence": {
           "enabled": true,
           "count": 3,
@@ -72,8 +72,8 @@
           "schedule_type": "business",
           "final_action": "close"
         },
-        "confirm_msg_id": 734,
-        "launch_msg_id": 737
+        "confirm_msg_id": 765,
+        "launch_msg_id": 768
       }
     },
     "requirement_3": {
@@ -99,7 +99,7 @@
       }
     },
     "requirement_4": {
-      "scanned_files": 110,
+      "scanned_files": 119,
       "violations": [],
       "credentials_checked": [
         "TELEGRAM_BOT_TOKEN (fp:c52c24705d20)",

@@ -1,15 +1,15 @@
 [
   {
-    "email": "outreach1@gmail.com",
-    "password": "abcd efgh ijkl mnop",
-    "sender_name": "Ronit",
+    "email": "outreach1@example.com",
+    "password": "your-app-password-1",
+    "sender_name": "Alex",
     "daily_limit": 40,
     "is_active": true
   },
   {
-    "email": "outreach2@gmail.com",
-    "password": "qrst uvwx yzab cdef",
-    "sender_name": "Ronit",
+    "email": "outreach2@example.com",
+    "password": "your-app-password-2",
+    "sender_name": "Alex",
     "daily_limit": 40,
     "is_active": true
   }

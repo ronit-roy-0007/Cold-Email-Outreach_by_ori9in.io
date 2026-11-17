@@ -85,7 +85,7 @@ def send_operator_reply(
 
     # 3. Dispatch / Simulation
     sender_name = settings.AGENCY_SENDER_NAME or "Ronit"
-    sender_email = conv.sender_email or settings.SENDER_EMAIL or "outreach@ori9in.io"
+    sender_email = conv.sender_email or settings.SENDER_EMAIL or "outreach@example.com"
     delivery_status = "simulated"
 
     if not settings.OUTREACH_DRY_RUN:

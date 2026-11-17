@@ -2,12 +2,13 @@ services:
   db:
     image: postgres:16-alpine
     container_name: intentlead-db
+    restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-intentlead}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-intentlead_secure_staging_pass}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-intentlead_dev_password}
       POSTGRES_DB: ${POSTGRES_DB:-intentlead}
     ports:
-      - "127.0.0.1:${POSTGRES_PORT:-5434}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -22,6 +23,8 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -30,7 +33,7 @@ services:
 
   api:
     build:
-      context: ./apps/intelligence-api
+      context: .
       dockerfile: Dockerfile
     container_name: intentlead-api
     restart: unless-stopped
@@ -39,23 +42,14 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    env_file:
+      - path: .env
+        required: false
     environment:
-      APP_ENV: ${APP_ENV:-staging}
-      DATABASE_URL: postgresql://${POSTGRES_USER:-intentlead}:${POSTGRES_PASSWORD:-intentlead_secure_staging_pass}@db:5432/${POSTGRES_DB:-intentlead}
+      APP_ENV: ${APP_ENV:-development}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-intentlead}:${POSTGRES_PASSWORD:-intentlead_dev_password}@db:5432/${POSTGRES_DB:-intentlead}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
-      DISCOVERY_PROVIDER: ${DISCOVERY_PROVIDER:-mock}
-      GOOGLE_MAPS_SCRAPER_BASE_URL: ${GOOGLE_MAPS_SCRAPER_BASE_URL:-http://scraper:8080}
       OUTREACH_DRY_RUN: ${OUTREACH_DRY_RUN:-true}
-      AGENCY_NAME: ${AGENCY_NAME:-ori9in.io}
-      AGENCY_SENDER_NAME: ${AGENCY_SENDER_NAME:-Ronit}
-      API_KEY: ${API_KEY:-}
-      RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-60}
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:8000}
-      FIELD_ENCRYPTION_KEY: ${FIELD_ENCRYPTION_KEY:-}
-      OUTREACH_WEBHOOK_SECRET: ${OUTREACH_WEBHOOK_SECRET:-}
-      RESEND_WEBHOOK_SECRET: ${RESEND_WEBHOOK_SECRET:-}
-      UNSUBSCRIBE_SECRET: ${UNSUBSCRIBE_SECRET:-}
-      UNSUBSCRIBE_BASE_URL: ${UNSUBSCRIBE_BASE_URL:-}
     ports:
       - "${API_BIND_IP:-127.0.0.1}:8000:8000"
     healthcheck:
@@ -63,7 +57,46 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 15s
+
+  telegram-poller:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: intentlead-telegram-poller
+    restart: unless-stopped
+    command: ["python", "scripts/telegram_poller.py"]
+    depends_on:
+      api:
+        condition: service_healthy
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-intentlead}:${POSTGRES_PASSWORD:-intentlead_dev_password}@db:5432/${POSTGRES_DB:-intentlead}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      OUTREACH_DRY_RUN: ${OUTREACH_DRY_RUN:-true}
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: intentlead-worker
+    restart: unless-stopped
+    command: ["python", "scripts/worker.py"]
+    depends_on:
+      api:
+        condition: service_healthy
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-intentlead}:${POSTGRES_PASSWORD:-intentlead_dev_password}@db:5432/${POSTGRES_DB:-intentlead}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      OUTREACH_DRY_RUN: ${OUTREACH_DRY_RUN:-true}
 
 volumes:
   postgres_data:
+  redis_data:

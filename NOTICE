@@ -1,0 +1,53 @@
+IntentLead AI
+Copyright 2026 IntentLead AI Contributors
+
+This product includes software developed as part of IntentLead AI
+(https://github.com/your-org/IntentLead-AI).
+
+This product is licensed under the Apache License, Version 2.0.
+
+--------------------------------------------------------------------------------
+Third-Party Software Attributions
+--------------------------------------------------------------------------------
+
+This software includes or depends on the following open-source libraries:
+
+1. FastAPI (https://github.com/fastapi/fastapi)
+   License: MIT License
+   Copyright (c) 2018-present Sebastián Ramírez
+
+2. SQLAlchemy (https://github.com/sqlalchemy/sqlalchemy)
+   License: MIT License
+   Copyright (c) 2005-present Michael Bayer
+
+3. Alembic (https://github.com/sqlalchemy/alembic)
+   License: MIT License
+   Copyright (c) 2009-present Michael Bayer
+
+4. Pydantic & Pydantic-Settings (https://github.com/pydantic/pydantic)
+   License: MIT License
+   Copyright (c) 2017-present Samuel Colvin
+
+5. Uvicorn (https://github.com/encode/uvicorn)
+   License: BSD 3-Clause License
+   Copyright (c) 2017-present Encode OSS Ltd.
+
+6. HTTPX (https://github.com/encode/httpx)
+   License: BSD 3-Clause License
+   Copyright (c) 2019-present Encode OSS Ltd.
+
+7. Cryptography (https://github.com/pyca/cryptography)
+   License: Apache License 2.0 / BSD 3-Clause
+   Copyright (c) Individual contributors
+
+8. Redis-py (https://github.com/redis/redis-py)
+   License: MIT License
+   Copyright (c) 2006-present Redis Ltd.
+
+9. Jinja2 (https://github.com/pallets/jinja)
+   License: BSD 3-Clause License
+   Copyright (c) 2007-present Pallets Projects
+
+10. Scrapling (https://github.com/D4Vinci/Scrapling)
+    License: BSD 3-Clause License
+    Copyright (c) 2024 Karim Shoair

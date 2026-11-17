@@ -91,8 +91,8 @@ def generate_gemini_pitch(
     if not api_key:
         return None
 
-    agency_name = (agency_name or settings.AGENCY_NAME or "ori9in.io").strip()
-    sender_name = (sender_name or settings.AGENCY_SENDER_NAME or "Roy").strip()
+    agency_name = (agency_name or settings.AGENCY_NAME or "IntentLead").strip()
+    sender_name = (sender_name or settings.AGENCY_SENDER_NAME or "Alex").strip()
     model = (settings.USER_LLM_MODEL or "gemini-1.5-flash").strip()
 
     rec_svc = lead.recommended_service or "lead_management_followup"

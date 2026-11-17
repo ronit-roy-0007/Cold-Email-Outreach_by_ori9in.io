@@ -238,7 +238,7 @@ def dispatch_single_email(
     Dispatches or simulates outreach for a single lead with all deliverability and compliance gates.
     """
     recipient_email = (biz.email or "").strip()
-    eff_agency_name = (agency_name or settings.AGENCY_NAME or "ori9in.io").strip()
+    eff_agency_name = (agency_name or settings.AGENCY_NAME or "IntentLead").strip()
     eff_sender_name = (sender_name or settings.AGENCY_SENDER_NAME or "Ronit").strip()
     eff_sender_email = (sender_email or settings.SENDER_EMAIL or f"outreach@{eff_agency_name.lower().replace(' ', '')}").strip()
     eff_provider = (settings.EMAIL_PROVIDER or "smtp").lower()

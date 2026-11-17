@@ -1,12 +1,25 @@
+# ==============================================================================
+# IntentLead AI - Git Ignore Policy
+# ==============================================================================
+
 # Environment & Secrets (NEVER COMMIT)
 .env
 .env.*
 !.env.example
+.env.staging
+.env.production
+.env.local
 mailboxes.json
 **/mailboxes.json
 !mailboxes.example.json
 secrets/
 credentials/
+certs/
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
 
 # Python Virtual Environments & Caches
 .venv/
@@ -15,36 +28,58 @@ ENV/
 env/
 __pycache__/
 *.py[cod]
+*$py.class
 .pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
 
-# Databases
+# Databases, Volume Mounts & Runtime State
 *.sqlite
 *.sqlite3
 *.db
+*.db-journal
+*.db-wal
+*.rdb
 data/
+postgres_data/
+redis_data/
+backups/
+state/
+apps/intelligence-api/app/state/
+*.session
+*.session-journal
+telegram_sessions.json
+**/telegram_sessions.json
 
-# Logs & Temporary Data
+# Logs, Artifacts & Temporary Uploads
 *.log
+logs/
 outputs/
 downloads/
 webdata/
+uploads/
 *.csv
 scratch/
+tmp/
 
-# IDE & OS Metadata
+# IDE, Editor & OS Metadata
 .idea/
 .vscode/
+*.swp
+*.swo
+*~
 .DS_Store
 Thumbs.db
+desktop.ini
 
-# Build Artifacts
+# Frontend / Build Artifacts
 node_modules/
 dist/
 build/
+.next/
 
-# External Scraper Binaries
+# Scraper Local Binaries & External Repositories
 google-maps-scraper/
-
-# Runtime Session Cache
-apps/intelligence-api/app/state/
-state/
+bin/
