@@ -21,7 +21,7 @@ We provide security patches for the following versions:
 **DO NOT report security issues via public GitHub issues, discussions, or pull requests.**
 
 If you discover a security vulnerability in IntentLead AI:
-1. Send an email to **`security@intentlead.ai`** (or your designated security contact).
+1. Send an email to **`ronit37830@gmail.com`** (or your designated security contact).
 2. Include:
    - A detailed description of the vulnerability.
    - Affected files and components.
