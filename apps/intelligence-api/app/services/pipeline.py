@@ -61,9 +61,12 @@ def process_listings(
 
     session.flush()
 
-    # Parallelize website audits across a thread pool (6 workers)
+    # Parallelize website audits across a thread pool (16 workers)
     def _audit_task(pair: tuple[Business, Lead]) -> tuple[Business, Lead, list[Evidence]]:
         b, l = pair
+        # For live outreach campaigns, skip heavy network audit if business has no email or no website
+        if not b.website or (campaign.provider in ("scrapling", "live", "google_maps") and not b.email):
+            return b, l, []
         evs = audit_business(None, campaign.id, b, fetcher=fetcher)
         return b, l, evs
 

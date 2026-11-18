@@ -186,7 +186,7 @@ def crawl_website_details(website_url: str) -> tuple[str | None, dict[str, str]]
     socials: dict[str, str] = {}
 
     try:
-        resp = Fetcher.get(website_url, timeout=7, retries=1)
+        resp = Fetcher.get(website_url, timeout=5, retries=1)
         if resp.status == 200 and resp.html_content:
             ems = extract_emails_from_html(resp.html_content, website_url=website_url)
             if ems:
@@ -211,10 +211,10 @@ def crawl_website_details(website_url: str) -> tuple[str | None, dict[str, str]]
                                 contact_links.append((priority, c_url))
 
                 contact_links.sort(key=lambda x: x[0])
-                # Check up to 3 highest priority contact links
-                for _, c_url in contact_links[:3]:
+                # Check up to 2 highest priority contact links with fast timeout
+                for _, c_url in contact_links[:2]:
                     try:
-                        c_resp = Fetcher.get(c_url, timeout=6, retries=1)
+                        c_resp = Fetcher.get(c_url, timeout=4, retries=1)
                         if c_resp.status == 200 and c_resp.html_content:
                             c_ems = extract_emails_from_html(c_resp.html_content, website_url=website_url)
                             if c_ems:
@@ -241,15 +241,15 @@ def search_google_maps_via_scrapling(query: str, location: str, target_count: in
     logger.info("Scrapling searching Google Maps: %s (target: %d)", url, target_count)
     listings_raw: list[dict[str, Any]] = []
 
-    scroll_cycles = max(6, min(target_count // 4, 20))
+    scroll_cycles = max(4, min(target_count // 5, 8))
 
     def _scroll_feed(page: Any) -> None:
         try:
             feed = page.locator("div[role='feed']")
-            feed.wait_for(timeout=10000)
+            feed.wait_for(timeout=8000)
             for _ in range(scroll_cycles):
                 feed.evaluate("el => el.scrollBy(0, 2500)")
-                page.wait_for_timeout(900)
+                page.wait_for_timeout(450)
         except Exception as e:
             logger.debug("Scrapling scroll notification: %s", e)
 
@@ -365,7 +365,7 @@ class ScraplingClient:
                 reviews=[],
             )
 
-        with ThreadPoolExecutor(max_workers=16) as pool:
+        with ThreadPoolExecutor(max_workers=20) as pool:
             futures = [pool.submit(_enrich_listing, r) for r in raw_listings]
             for f in as_completed(futures):
                 try:

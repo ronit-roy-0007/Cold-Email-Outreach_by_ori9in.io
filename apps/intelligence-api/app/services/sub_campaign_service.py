@@ -273,9 +273,12 @@ def record_campaign_leftovers(
 
     query = (
         db.query(Lead)
+        .join(Business, Lead.business_id == Business.id)
         .filter(
             Lead.campaign_id == campaign_id,
             Lead.outreach_status.in_(["draft", "approved"]),
+            Business.email.isnot(None),
+            Business.email != "",
         )
     )
     if min_score > 0:
@@ -562,6 +565,8 @@ def generate_remaining_leads_csv(db: Session, campaign_id: uuid.UUID, min_score:
         .filter(
             Lead.campaign_id == campaign_id,
             Lead.outreach_status.in_(["draft", "approved"]),
+            Business.email.isnot(None),
+            Business.email != "",
         )
     )
     if min_score > 0:

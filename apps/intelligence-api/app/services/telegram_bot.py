@@ -226,12 +226,15 @@ def generate_campaign_csv(
     min_score: int = 0,
     limit: int = 0,
     only_unattempted: bool = False,
+    require_valid_email: bool = True,
 ) -> str:
     query = (
         db.query(Lead, Business)
         .join(Business, Lead.business_id == Business.id)
         .filter(Lead.campaign_id == campaign_id)
     )
+    if require_valid_email:
+        query = query.filter(Business.email.isnot(None)).filter(Business.email != "")
     if min_score > 0:
         query = query.filter(Lead.overall_score >= min_score)
     if only_unattempted:
@@ -1071,14 +1074,20 @@ def _execute_wizard_campaign(
             )
         raise
 
-    total_leads = db.query(Lead).filter_by(campaign_id=camp.id).count()
+    total_leads = (
+        db.query(Lead)
+        .join(Business, Lead.business_id == Business.id)
+        .filter(Lead.campaign_id == camp.id, Business.email.isnot(None), Business.email != "")
+        .count()
+    )
     matching_leads = (
         db.query(Lead)
-        .filter(Lead.campaign_id == camp.id, Lead.overall_score >= bench_score)
+        .join(Business, Lead.business_id == Business.id)
+        .filter(Lead.campaign_id == camp.id, Lead.overall_score >= bench_score, Business.email.isnot(None), Business.email != "")
         .count()
     )
 
-    csv_str = generate_campaign_csv(db, camp.id, min_score=bench_score, limit=qty)
+    csv_str = generate_campaign_csv(db, camp.id, min_score=bench_score, limit=qty, require_valid_email=True)
     filename = f"Sub_Campaign_1_Preview.csv"
 
     buttons = None
@@ -1360,10 +1369,13 @@ def handle_telegram_update(
 
             unattempted = (
                 db.query(Lead)
+                .join(Business, Lead.business_id == Business.id)
                 .filter(
                     Lead.campaign_id == camp.id,
                     Lead.overall_score >= bench_score,
                     Lead.outreach_status.in_(["draft", "approved"]),
+                    Business.email.isnot(None),
+                    Business.email != "",
                 )
                 .count()
             )
@@ -1396,10 +1408,13 @@ def handle_telegram_update(
 
             unattempted = (
                 db.query(Lead)
+                .join(Business, Lead.business_id == Business.id)
                 .filter(
                     Lead.campaign_id == camp.id,
                     Lead.overall_score >= bench_score,
                     Lead.outreach_status.in_(["draft", "approved"]),
+                    Business.email.isnot(None),
+                    Business.email != "",
                 )
                 .count()
             )
@@ -1416,10 +1431,13 @@ def handle_telegram_update(
 
             unattempted = (
                 db.query(Lead)
+                .join(Business, Lead.business_id == Business.id)
                 .filter(
                     Lead.campaign_id == camp.id,
                     Lead.overall_score >= bench_score,
                     Lead.outreach_status.in_(["draft", "approved"]),
+                    Business.email.isnot(None),
+                    Business.email != "",
                 )
                 .count()
             )
@@ -1509,10 +1527,13 @@ def handle_telegram_update(
                 # Auto mode approved by user -> transition batch candidates to approved
                 batch_candidates = (
                     db.query(Lead)
+                    .join(Business, Lead.business_id == Business.id)
                     .filter(
                         Lead.campaign_id == camp.id,
                         Lead.overall_score >= bench_score,
                         Lead.outreach_status == "draft",
+                        Business.email.isnot(None),
+                        Business.email != "",
                     )
                     .order_by(Lead.overall_score.desc())
                     .all()
@@ -1561,10 +1582,13 @@ def handle_telegram_update(
                 current_search_loc = camp.expanded_locations[-1] if camp.expanded_locations else camp.location
                 unattempted = (
                     db.query(Lead)
+                    .join(Business, Lead.business_id == Business.id)
                     .filter(
                         Lead.campaign_id == camp.id,
                         Lead.overall_score >= bench_score,
                         Lead.outreach_status.in_(["draft", "approved"]),
+                        Business.email.isnot(None),
+                        Business.email != "",
                     )
                     .count()
                 )
@@ -1581,10 +1605,13 @@ def handle_telegram_update(
 
                 unattempted = (
                     db.query(Lead)
+                    .join(Business, Lead.business_id == Business.id)
                     .filter(
                         Lead.campaign_id == camp.id,
                         Lead.overall_score >= bench_score,
                         Lead.outreach_status.in_(["draft", "approved"]),
+                        Business.email.isnot(None),
+                        Business.email != "",
                     )
                     .count()
                 )
@@ -1749,11 +1776,18 @@ def handle_telegram_update(
                 return {"status": "error", "reply": "Campaign not found."}
 
             bench_score = camp.filters.get("min_score", 0) if isinstance(camp.filters, dict) else 0
-            matching = db.query(Lead).filter(
-                Lead.campaign_id == camp.id,
-                Lead.overall_score >= bench_score,
-                Lead.outreach_status.in_(["draft", "approved"]),
-            ).count()
+            matching = (
+                db.query(Lead)
+                .join(Business, Lead.business_id == Business.id)
+                .filter(
+                    Lead.campaign_id == camp.id,
+                    Lead.overall_score >= bench_score,
+                    Lead.outreach_status.in_(["draft", "approved"]),
+                    Business.email.isnot(None),
+                    Business.email != "",
+                )
+                .count()
+            )
 
             if matching == 0:
                 return {"status": "error", "reply": "No qualified leads ready to proceed. Please expand search radius or adjust threshold."}
@@ -1823,7 +1857,13 @@ def handle_telegram_update(
 
             matching_leads = (
                 db.query(Lead)
-                .filter(Lead.campaign_id == camp.id, Lead.overall_score >= new_score)
+                .join(Business, Lead.business_id == Business.id)
+                .filter(
+                    Lead.campaign_id == camp.id,
+                    Lead.overall_score >= new_score,
+                    Business.email.isnot(None),
+                    Business.email != "",
+                )
                 .count()
             )
 
@@ -3688,13 +3728,21 @@ def handle_telegram_update(
                 )
             raise
 
-        total_leads = db.query(Lead).filter_by(campaign_id=camp.id).count()
+        total_leads = (
+            db.query(Lead)
+            .join(Business, Lead.business_id == Business.id)
+            .filter(Lead.campaign_id == camp.id, Business.email.isnot(None), Business.email != "")
+            .count()
+        )
         matching_leads = (
             db.query(Lead)
+            .join(Business, Lead.business_id == Business.id)
             .filter(
                 Lead.campaign_id == camp.id,
                 Lead.overall_score >= bench_score,
                 Lead.outreach_status.in_(["draft", "approved"]),
+                Business.email.isnot(None),
+                Business.email != "",
             )
             .count()
             if bench_score > 0
