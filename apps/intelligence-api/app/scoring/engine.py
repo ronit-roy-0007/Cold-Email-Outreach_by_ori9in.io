@@ -352,28 +352,29 @@ def score_lead(
         )
     )
 
-    # 3. real_estate_listing_portal
-    lp_points = 0
-    lp_ev_ids: list[str] = []
-    lp_reason = reasons.UNKNOWN_NOT_INSPECTED
-    if site_inspected and "real estate" in category.lower():
-        if missing_search_ev:
-            lp_points = 80
-            lp_reason = reasons.MISSING_LISTING_SEARCH
-            lp_ev_ids = _ev_ids(missing_search_ev)
-        elif has_search_ev:
-            lp_points = 20
-            lp_reason = reasons.LISTING_CAPABLE_SITE
-            lp_ev_ids = _ev_ids(has_search_ev)
+    # 3. real_estate_listing_portal (only if targeted or real estate niche)
+    if "real_estate_listing_portal" in target_services or "real estate" in category.lower():
+        lp_points = 0
+        lp_ev_ids: list[str] = []
+        lp_reason = reasons.UNKNOWN_NOT_INSPECTED
+        if site_inspected and "real estate" in category.lower():
+            if missing_search_ev:
+                lp_points = 80
+                lp_reason = reasons.MISSING_LISTING_SEARCH
+                lp_ev_ids = _ev_ids(missing_search_ev)
+            elif has_search_ev:
+                lp_points = 20
+                lp_reason = reasons.LISTING_CAPABLE_SITE
+                lp_ev_ids = _ev_ids(has_search_ev)
 
-    service_scores.append(
-        ServiceScoreResult(
-            service="real_estate_listing_portal",
-            points=min(lp_points, 100),
-            evidence_ids=lp_ev_ids,
-            reason_code=lp_reason,
+        service_scores.append(
+            ServiceScoreResult(
+                service="real_estate_listing_portal",
+                points=min(lp_points, 100),
+                evidence_ids=lp_ev_ids,
+                reason_code=lp_reason,
+            )
         )
-    )
 
     # 4. ai_chatbot
     cb_points = 0

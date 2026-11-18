@@ -383,43 +383,46 @@ def audit_business(
             )
         )
 
-    # Listing search
-    has_listing_search = any(
-        ("#search" in p[1].lower())
-        or ("property_search" in p[1].lower())
-        or ("search listings" in p[1].lower())
-        or (re.search(r'(listing|property)\s*(search|filter)', p[1], re.IGNORECASE) is not None)
-        for p in pages
-    )
-    if has_listing_search:
-        evidence_list.append(
-            Evidence(
-                business_id=business.id,
-                campaign_id=campaign_id,
-                claim="Property listing search or filter controls found",
-                evidence_type="verified_observation",
-                source_url=url,
-                checked_at=now,
-                inspected_scope="inspected pages",
-                confidence="high",
-                supporting_excerpt="has_listing_search",
-            )
+    # Listing search (strictly for real estate & property niches)
+    cat_lower = (business.category or "").lower()
+    is_real_estate = any(k in cat_lower for k in ("real estate", "property", "realtor", "broker", "housing", "apartment", "estate agency"))
+    if is_real_estate:
+        has_listing_search = any(
+            ("#search" in p[1].lower())
+            or ("property_search" in p[1].lower())
+            or ("search listings" in p[1].lower())
+            or (re.search(r'(listing|property)\s*(search|filter)', p[1], re.IGNORECASE) is not None)
+            for p in pages
         )
-    else:
-        evidence_list.append(
-            Evidence(
-                business_id=business.id,
-                campaign_id=campaign_id,
-                claim="No property search was visible on the inspected website pages",
-                evidence_type="verified_observation",
-                source_url=url,
-                checked_at=now,
-                inspected_scope="inspected pages",
-                confidence="medium",
-                supporting_excerpt="missing_listing_search",
-                caveat="Absence on inspected pages is not proof the feature does not exist elsewhere",
+        if has_listing_search:
+            evidence_list.append(
+                Evidence(
+                    business_id=business.id,
+                    campaign_id=campaign_id,
+                    claim="Property listing search or filter controls found",
+                    evidence_type="verified_observation",
+                    source_url=url,
+                    checked_at=now,
+                    inspected_scope="inspected pages",
+                    confidence="high",
+                    supporting_excerpt="has_listing_search",
+                )
             )
-        )
+        else:
+            evidence_list.append(
+                Evidence(
+                    business_id=business.id,
+                    campaign_id=campaign_id,
+                    claim="No property search was visible on the inspected website pages",
+                    evidence_type="verified_observation",
+                    source_url=url,
+                    checked_at=now,
+                    inspected_scope="inspected pages",
+                    confidence="medium",
+                    supporting_excerpt="missing_listing_search",
+                    caveat="Absence on inspected pages is not proof the feature does not exist elsewhere",
+                )
+            )
 
     # WhatsApp
     has_whatsapp = "wa.me" in all_pages_lower or "whatsapp" in all_pages_lower

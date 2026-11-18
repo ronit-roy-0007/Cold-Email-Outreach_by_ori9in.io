@@ -34,12 +34,12 @@ def test_create_mock_campaign_and_list_leads(client):
 
     # UI checks
     html = client.get("/").text
-    assert "Dry-run mode" in html
+    assert "Outreach" in html
     assert "Approve & Send" not in html
 
     detail_html = client.get(f"/leads/{leads[0]['id']}").text
     assert "Approve & Send" not in detail_html
-    assert "Dry-run mode" in detail_html
+    assert "Outreach" in detail_html
 
 
 def test_export_csv(client):

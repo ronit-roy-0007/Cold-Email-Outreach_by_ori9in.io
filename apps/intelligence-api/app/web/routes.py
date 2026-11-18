@@ -439,13 +439,24 @@ def lead_detail_view(
     biz = db.get(Business, lead.business_id)
     campaign = db.get(Campaign, lead.campaign_id)
     dims = db.query(DimensionScore).filter_by(lead_id=lead_id).all()
-    svcs = db.query(ServiceScore).filter_by(lead_id=lead_id).order_by(desc(ServiceScore.points)).all()
+    
+    # Filter service scores to only the services offered in this campaign
+    target_svcs = campaign.target_services if campaign and campaign.target_services else []
+    svcs_query = db.query(ServiceScore).filter_by(lead_id=lead_id)
+    if target_svcs:
+        svcs_query = svcs_query.filter(ServiceScore.service.in_(target_svcs))
+    svcs = svcs_query.order_by(desc(ServiceScore.points)).all()
+
     draft = db.query(MessageDraft).filter_by(lead_id=lead_id).first()
-    evs = (
-        db.query(Evidence)
-        .filter_by(business_id=lead.business_id, campaign_id=lead.campaign_id)
-        .all()
+    
+    evs_query = db.query(Evidence).filter_by(business_id=lead.business_id, campaign_id=lead.campaign_id)
+    is_real_estate = any(
+        k in (((biz.category or "") if biz else "") + " " + ((campaign.niche if campaign else "") or "")).lower()
+        for k in ("real estate", "property", "realtor", "broker", "housing")
     )
+    if not is_real_estate:
+        evs_query = evs_query.filter(Evidence.supporting_excerpt != "missing_listing_search")
+    evs = evs_query.all()
     socials = get_business_social_links(biz) if biz else {}
     approval_history = db.query(Approval).filter_by(lead_id=lead_id).order_by(desc(Approval.created_at)).all()
 
