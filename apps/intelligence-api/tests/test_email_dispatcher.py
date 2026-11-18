@@ -45,7 +45,7 @@ def email_settings():
         SENDER_EMAIL="outreach@ori9in.io",
         AGENCY_NAME="ori9in.io",
         AGENCY_SENDER_NAME="Ronit",
-        AGENCY_PHYSICAL_ADDRESS="100 Innovation Way, Suite 400, Wilmington, DE 19801",
+        BUSINESS_POSTAL_ADDRESS="456 Market St, Suite 200, San Francisco, CA 94105",
         MAX_EMAILS_PER_DAY=5,
         UNSUBSCRIBE_BASE_URL="https://ori9in.io/unsubscribe",
         UNSUBSCRIBE_SECRET="test-secret-key-12345",
@@ -133,11 +133,12 @@ def test_can_spam_compliance_formatting(email_settings):
         body=body,
         agency_name="ori9in.io",
         sender_name="Ronit",
-        agency_address=email_settings.AGENCY_PHYSICAL_ADDRESS,
+        agency_address=email_settings.get_business_postal_address(),
         unsubscribe_url=unsub_url,
+        force_footer=True,
     )
 
-    assert "100 Innovation Way, Suite 400, Wilmington, DE 19801" in formatted
+    assert "456 Market St, Suite 200, San Francisco, CA 94105" in formatted
     assert "Ronit | ori9in.io" in formatted
     assert unsub_url in formatted
 
@@ -359,3 +360,128 @@ def test_outreach_api_endpoints(client, db, email_settings):
     stats = stats_res.json()
     assert stats["total_dispatches"] == 2
     assert stats["status_breakdown"].get("simulated") == 2
+
+
+# ==============================================================================
+# Phase 2 Regression Tests: BUSINESS_POSTAL_ADDRESS Compliance & Safety
+# ==============================================================================
+
+def test_missing_postal_address_in_live_mode_blocks_dispatch(db, email_settings):
+    """Verify live outreach is strictly blocked if BUSINESS_POSTAL_ADDRESS is missing."""
+    email_settings.OUTREACH_DRY_RUN = False
+    email_settings.BUSINESS_POSTAL_ADDRESS = ""
+    email_settings.AGENCY_PHYSICAL_ADDRESS = ""
+
+    camp = Campaign(
+        niche="Dentists",
+        location="Chicago",
+        requested_quantity=1,
+        status="completed",
+        target_services=["ai_chatbot"],
+        filters={},
+        provider="live",
+    )
+    db.add(camp)
+    db.flush()
+
+    biz = Business(
+        identity_key="test-key-live-1",
+        name="Live Dental",
+        website="http://livedental.com",
+        email="doc@livedental.com",
+        discovery_source="google_maps",
+        source_fields={},
+    )
+    db.add(biz)
+    db.flush()
+
+    lead = Lead(campaign_id=camp.id, business_id=biz.id, overall_score=90, priority="A", confidence="high", outreach_status="approved")
+    db.add(lead)
+    db.commit()
+
+    outbound = dispatch_single_email(
+        db,
+        lead,
+        biz,
+        email_settings,
+        resolver_fn=lambda d: ["mx1.livedental.com"],
+    )
+
+    assert outbound.status == "failed"
+    assert "BUSINESS_POSTAL_ADDRESS must be set in .env before live email dispatch" in outbound.error_message
+    assert lead.outreach_status == "failed"
+
+
+def test_valid_configured_postal_address(email_settings):
+    """Verify get_business_postal_address properly resolves configured primary and legacy address."""
+    email_settings.BUSINESS_POSTAL_ADDRESS = "742 Evergreen Terrace, Springfield, OR 97477"
+    email_settings.AGENCY_PHYSICAL_ADDRESS = ""
+    assert email_settings.get_business_postal_address() == "742 Evergreen Terrace, Springfield, OR 97477"
+
+    # Test legacy alias fallback
+    email_settings.BUSINESS_POSTAL_ADDRESS = ""
+    email_settings.AGENCY_PHYSICAL_ADDRESS = "123 Legacy Blvd, Austin, TX 78701"
+    assert email_settings.get_business_postal_address() == "123 Legacy Blvd, Austin, TX 78701"
+
+
+def test_dry_run_mode_without_configured_postal_address(db, email_settings):
+    """Verify dry-run operation functions cleanly without requiring a real postal address."""
+    email_settings.OUTREACH_DRY_RUN = True
+    email_settings.BUSINESS_POSTAL_ADDRESS = ""
+    email_settings.AGENCY_PHYSICAL_ADDRESS = ""
+
+    camp = Campaign(
+        niche="SaaS",
+        location="Remote",
+        requested_quantity=1,
+        status="completed",
+        target_services=["ai_chatbot"],
+        filters={},
+        provider="live",
+    )
+    db.add(camp)
+    db.flush()
+
+    biz = Business(
+        identity_key="test-key-dry-1",
+        name="Mock SaaS",
+        website="http://mocksaas.io",
+        email="info@mocksaas.io",
+        discovery_source="google_maps",
+        source_fields={},
+    )
+    db.add(biz)
+    db.flush()
+
+    lead = Lead(campaign_id=camp.id, business_id=biz.id, overall_score=85, priority="A", confidence="high", outreach_status="approved")
+    db.add(lead)
+    db.commit()
+
+    outbound = dispatch_single_email(
+        db,
+        lead,
+        biz,
+        email_settings,
+        resolver_fn=lambda d: ["mx1.mocksaas.io"],
+    )
+
+    assert outbound.status == "simulated"
+    assert lead.outreach_status == "simulated"
+
+
+def test_email_template_address_rendering_no_fabricated_fallback(email_settings):
+    """Verify email template footer never inserts a fabricated fake address."""
+    unsub_url = "http://localhost:8000/unsubscribe?token=abc"
+    formatted = format_compliant_email_body(
+        body="Here is our agency proposal.",
+        agency_name="Test Agency",
+        sender_name="Alex",
+        agency_address="",
+        unsubscribe_url=unsub_url,
+        force_footer=True,
+    )
+
+    assert "100 Innovation Way" not in formatted
+    assert "Wilmington, DE" not in formatted
+    assert "Test Agency" in formatted
+    assert unsub_url in formatted

@@ -50,6 +50,8 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-intentlead}:${POSTGRES_PASSWORD:-intentlead_dev_password}@db:5432/${POSTGRES_DB:-intentlead}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       OUTREACH_DRY_RUN: ${OUTREACH_DRY_RUN:-true}
+      BOOTSTRAP_OPERATOR_USERNAME: ${BOOTSTRAP_OPERATOR_USERNAME:-admin}
+      BOOTSTRAP_OPERATOR_PASSWORD: ${BOOTSTRAP_OPERATOR_PASSWORD:-}
     ports:
       - "${API_BIND_IP:-127.0.0.1}:8000:8000"
     healthcheck:
@@ -77,6 +79,8 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-intentlead}:${POSTGRES_PASSWORD:-intentlead_dev_password}@db:5432/${POSTGRES_DB:-intentlead}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       OUTREACH_DRY_RUN: ${OUTREACH_DRY_RUN:-true}
+      BOOTSTRAP_OPERATOR_USERNAME: ${BOOTSTRAP_OPERATOR_USERNAME:-admin}
+      BOOTSTRAP_OPERATOR_PASSWORD: ${BOOTSTRAP_OPERATOR_PASSWORD:-}
 
   worker:
     build:
@@ -96,6 +100,8 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-intentlead}:${POSTGRES_PASSWORD:-intentlead_dev_password}@db:5432/${POSTGRES_DB:-intentlead}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       OUTREACH_DRY_RUN: ${OUTREACH_DRY_RUN:-true}
+      BOOTSTRAP_OPERATOR_USERNAME: ${BOOTSTRAP_OPERATOR_USERNAME:-admin}
+      BOOTSTRAP_OPERATOR_PASSWORD: ${BOOTSTRAP_OPERATOR_PASSWORD:-}
 
 volumes:
   postgres_data:

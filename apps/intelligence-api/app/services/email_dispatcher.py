@@ -47,6 +47,13 @@ def send_smtp_email(
     unsubscribe_url: str,
     password: str | None = None,
 ) -> None:
+    if not settings.OUTREACH_DRY_RUN and not settings.get_business_postal_address():
+        raise EmailDispatchError(
+            "Configuration error: BUSINESS_POSTAL_ADDRESS must be set in .env before live email dispatch "
+            "to comply with CAN-SPAM and international anti-spam regulations. "
+            "Please configure BUSINESS_POSTAL_ADDRESS in your .env or keep OUTREACH_DRY_RUN=true."
+        )
+
     if not settings.SMTP_HOST:
         raise EmailDispatchError("SMTP_HOST is not configured")
 
@@ -259,7 +266,7 @@ def dispatch_single_email(
         pitch_body,
         eff_agency_name,
         eff_sender_name,
-        settings.AGENCY_PHYSICAL_ADDRESS,
+        settings.get_business_postal_address(),
         unsub_url,
     )
 
@@ -332,6 +339,19 @@ def dispatch_single_email(
         _record_conversation_and_schedule_followups(
             db, lead, biz, outbound, eff_sender_email, eff_subject, compliant_body
         )
+        return outbound
+
+    # Gate 5: CAN-SPAM / International Legal Compliance - Business Postal Address
+    eff_postal_address = settings.get_business_postal_address()
+    if not eff_postal_address:
+        outbound.status = "failed"
+        outbound.error_message = (
+            "Configuration error: BUSINESS_POSTAL_ADDRESS must be set in .env before live email dispatch "
+            "to comply with CAN-SPAM and international anti-spam regulations. "
+            "Please configure BUSINESS_POSTAL_ADDRESS in your .env or keep OUTREACH_DRY_RUN=true."
+        )
+        lead.outreach_status = "failed"
+        db.flush()
         return outbound
 
     # Live Dispatch via selected provider

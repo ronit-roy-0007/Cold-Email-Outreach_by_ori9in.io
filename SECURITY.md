@@ -10,8 +10,8 @@ We provide security patches for the following versions:
 
 | Version | Supported | Status |
 |---|---|---|
-| `0.2.x` | :white_check_mark: | Current Release Branch |
-| `main` | :white_check_mark: | Active Development |
+| `0.3.x` | :white_check_mark: | Current Release Branch |
+| `0.2.x` | :white_check_mark: | Maintenance |
 | `< 0.2.0` | :x: | End of Life / Deprecated |
 
 ---

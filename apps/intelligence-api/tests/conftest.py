@@ -6,6 +6,7 @@ os.environ["AGENCY_NAME"] = ""
 os.environ["AGENCY_SENDER_NAME"] = ""
 os.environ["DISCOVERY_PROVIDER"] = "mock"
 os.environ["OUTREACH_DRY_RUN"] = "true"
+os.environ["TELEGRAM_BOT_TOKEN"] = ""
 
 import pytest
 from sqlalchemy import create_engine
@@ -27,6 +28,7 @@ def auth_settings():
         DISCOVERY_PROVIDER="mock",
         AGENCY_NAME="River Agency",
         AGENCY_SENDER_NAME="Jordan Reed",
+        TELEGRAM_BOT_TOKEN="",
         TELEGRAM_ALLOWED_USER_ID="123456789",
         OUTREACH_DRY_RUN=True,
     )

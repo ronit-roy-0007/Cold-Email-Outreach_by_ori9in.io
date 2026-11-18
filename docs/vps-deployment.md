@@ -70,7 +70,7 @@ newgrp docker
 
 ```bash
 cd /opt
-sudo git clone https://github.com/your-org/IntentLead-AI.git
+sudo git clone https://github.com/ronit-roy-0007/Cold-Email-Outreach_by_ori9in.io.git IntentLead-AI
 sudo chown -R deployer:deployer IntentLead-AI
 cd IntentLead-AI
 

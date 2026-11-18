@@ -73,24 +73,28 @@ def run_setup(force: bool = False):
             print("\n[OK] Setup aborted. Your existing configuration and database were left untouched.")
             return
 
-    # 1. Database Configuration
-    print("\n--- [1/6] Database Configuration ---")
-    print("Choose your database engine:")
-    print("  [1] SQLite (Recommended - Zero Setup, Fast Single-File)")
-    print("  [2] Docker Compose PostgreSQL (Runs via Docker on localhost:5432)")
-    print("  [3] Custom PostgreSQL URL (Supabase, Neon, AWS RDS, etc.)")
-    db_choice = prompt_input("Enter choice [1/2/3]", default="1")
+    # 1. Database & Deployment Target
+    print("\n--- [1/6] Deployment Target & Database Configuration ---")
+    print("Choose your deployment target:")
+    print("  [1] Docker Compose with PostgreSQL (Recommended for container deployment)")
+    print("  [2] Standalone Local Python with SQLite (Zero-Setup single file)")
+    print("  [3] Custom PostgreSQL Database (Cloud Neon, Supabase, AWS RDS, etc.)")
+    deploy_choice = prompt_input("Enter choice [1/2/3]", default="1")
 
-    if db_choice == "2":
-        db_user = prompt_input("PostgreSQL Username", default="intentlead")
-        db_pass = prompt_input("PostgreSQL Password", default="password")
-        db_host = prompt_input("PostgreSQL Host", default="localhost")
-        db_port = prompt_input("PostgreSQL Port", default="5432")
-        db_name = prompt_input("Database Name", default="intentlead")
-        database_url = f"postgresql://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}"
-        print(f"[OK] Configured PostgreSQL: {database_url}")
-        print("     Tip: Start the database container with: docker compose up -d db")
-    elif db_choice == "3":
+    postgres_user = "intentlead"
+    postgres_pass = "intentlead_dev_password"
+    postgres_db = "intentlead"
+
+    if deploy_choice == "1":
+        print("\nConfiguring Docker Compose with PostgreSQL:")
+        postgres_user = prompt_input("PostgreSQL Username", default="intentlead")
+        postgres_pass = prompt_input("PostgreSQL Password", default="intentlead_dev_password")
+        postgres_db = prompt_input("PostgreSQL Database Name", default="intentlead")
+        database_url = f"postgresql://{postgres_user}:{postgres_pass}@localhost:5432/{postgres_db}"
+        print(f"[OK] Configured PostgreSQL for Docker Compose.")
+        print(f"     Container internal URL: postgresql://{postgres_user}:{postgres_pass}@db:5432/{postgres_db}")
+        print(f"     Host access URL:        {database_url}")
+    elif deploy_choice == "3":
         database_url = prompt_input(
             "Enter PostgreSQL Connection URL (e.g. postgresql://user:pass@host:5432/dbname)"
         )
@@ -99,7 +103,7 @@ def run_setup(force: bool = False):
             database_url = prompt_input("Enter PostgreSQL Connection URL")
     else:
         database_url = "sqlite:///./intentlead.db"
-        print("[OK] Selected SQLite: local file 'intentlead.db' will be used.")
+        print("[OK] Selected SQLite: local file 'intentlead.db' will be used for local Python execution.")
 
     # 2. Web Admin Operator Account
     print("\n--- [2/6] Web Operator Account (Dashboard Login) ---")
@@ -107,14 +111,17 @@ def run_setup(force: bool = False):
     admin_user = prompt_input("Admin Username", default="admin")
     admin_password = prompt_password("Admin Password (min 8 chars)", min_len=8)
 
-    # 3. Agency Identity & Sender
-    print("\n--- [3/6] Agency Identity & Email Branding ---")
+    # 3. Agency Identity & Business Postal Address
+    print("\n--- [3/6] Agency Identity & Legal Postal Address ---")
     agency_name = prompt_input("Agency / Business Name", default="Acme Growth Labs")
     sender_name = prompt_input("Sender First Name (shown in emails)", default="Alex")
     sender_email = prompt_input("Default Sender Email", default="outreach@example.com")
+    print("\n[NOTE] A legitimate business physical postal address is strictly required by")
+    print("       CAN-SPAM, GDPR, and international anti-spam laws. Live email dispatch")
+    print("       will be blocked if left blank (dry-run mode remains active).")
     physical_address = prompt_input(
-        "Agency Physical Address (CAN-SPAM compliance)",
-        default="100 Innovation Way, Suite 400, Wilmington, DE 19801"
+        "Business Postal Address (e.g. 123 Market St, Suite 100, San Francisco, CA 94105, press Enter to skip)",
+        default=""
     )
 
     # 4. AI Intelligence (Google Gemini)
@@ -196,6 +203,15 @@ LOG_LEVEL=INFO
 # Database Connection URL
 DATABASE_URL={database_url}
 
+# PostgreSQL Container Credentials (used by Docker Compose)
+POSTGRES_USER={postgres_user}
+POSTGRES_PASSWORD={postgres_pass}
+POSTGRES_DB={postgres_db}
+
+# Operator Bootstrap Credentials (Auto-provisioned in database on startup)
+BOOTSTRAP_OPERATOR_USERNAME={admin_user}
+BOOTSTRAP_OPERATOR_PASSWORD={admin_password}
+
 # Discovery Scraper Provider ("scrapling", "google_maps", "mock")
 DISCOVERY_PROVIDER=scrapling
 
@@ -237,7 +253,8 @@ MAILBOXES_FILE=mailboxes.json
 MAX_EMAILS_PER_DAY=40
 ENABLE_DISPATCH_PACING=true
 
-# Compliance & Unsubscribe Settings
+# Compliance & Anti-Spam Settings (Required for live email dispatch)
+BUSINESS_POSTAL_ADDRESS={physical_address}
 AGENCY_PHYSICAL_ADDRESS={physical_address}
 UNSUBSCRIBE_BASE_URL=http://localhost:8000/unsubscribe
 UNSUBSCRIBE_SECRET={unsubscribe_secret}
@@ -256,7 +273,7 @@ MAILGUN_WEBHOOK_SIGNING_KEY=
     api_env.write_text(env_content, encoding="utf-8")
     print(f"[OK] Saved .env configuration successfully.")
 
-    # Initialize Database Schema & Admin Account
+    # Initialize Database Schema & Admin Account if database is accessible locally
     print("\nInitializing database schema...")
     os.environ["DATABASE_URL"] = database_url
     os.environ["APP_ENV"] = "development"
@@ -288,16 +305,17 @@ MAILGUN_WEBHOOK_SIGNING_KEY=
                 db.commit()
                 print(f"[OK] Created operator '{admin_user}' in database.")
     except Exception as exc:
-        print(f"[!] Note: Database schema initialization encountered: {exc}")
-        print("    You can initialize the schema anytime by running: alembic upgrade head")
+        print(f"[!] Note: Host-side direct database connection deferred: {exc}")
+        print("    If deploying with Docker Compose, migrations and the admin account will")
+        print("    be provisioned automatically inside the PostgreSQL container on startup.")
 
     print("\n" + "=" * 70)
     print("🎉 IntentLead AI Setup Complete!")
     print("=" * 70)
     print("To launch IntentLead AI:")
+    print("  • Docker Compose:      docker compose up -d --build")
     print("  • Windows PowerShell:  .\\start.ps1 -Both")
     print("  • Linux / macOS:       ./start.sh --both")
-    print("  • Docker Compose:      docker compose up -d")
     print()
     print("Access your instance:")
     print(f"  • Web Dashboard:  http://localhost:8000 (Login: {admin_user})")

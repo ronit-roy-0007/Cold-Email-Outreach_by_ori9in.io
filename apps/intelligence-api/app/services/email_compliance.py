@@ -47,10 +47,11 @@ def format_compliant_email_body(
         ):
             return clean_body
 
+    address_line = f"{agency_address.strip()}\n" if agency_address.strip() else ""
     footer = (
         f"\n\n--\n"
         f"{sender_name.strip() or 'Outreach Team'} | {agency_name.strip() or 'Agency'}\n"
-        f"{agency_address.strip() or '100 Innovation Way, Suite 400, Wilmington, DE 19801'}\n"
+        f"{address_line}"
         f"To unsubscribe from future inquiries, click here: {unsubscribe_url}"
     )
     return clean_body + footer

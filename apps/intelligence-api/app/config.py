@@ -55,7 +55,8 @@ class Settings(BaseSettings):
     SMTP_USE_TLS: bool = True
     RESEND_API_KEY: str = ""
     GOOGLE_WORKSPACE_CREDENTIALS: str = ""
-    AGENCY_PHYSICAL_ADDRESS: str = "100 Innovation Way, Suite 400, Wilmington, DE 19801"
+    BUSINESS_POSTAL_ADDRESS: str = ""
+    AGENCY_PHYSICAL_ADDRESS: str = ""  # Backwards-compatible legacy alias
     MAX_EMAILS_PER_DAY: int = 50
     UNSUBSCRIBE_BASE_URL: str = "http://localhost:8000/unsubscribe"
     UNSUBSCRIBE_SECRET: str = "intentlead-compliance-secret-key"
@@ -80,6 +81,9 @@ class Settings(BaseSettings):
     LOGIN_RATE_LIMIT_MAX_ATTEMPTS: int = 5
     LOGIN_RATE_LIMIT_WINDOW_SECONDS: int = 900
     MAX_REQUEST_BODY_BYTES: int = 2097152
+
+    def get_business_postal_address(self) -> str:
+        return (self.BUSINESS_POSTAL_ADDRESS or self.AGENCY_PHYSICAL_ADDRESS or "").strip()
 
 
 def resolve_database_url(settings: Settings) -> str:

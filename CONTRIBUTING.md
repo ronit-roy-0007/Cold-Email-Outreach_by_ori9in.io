@@ -24,8 +24,8 @@ When contributing to IntentLead AI, strict safety rules apply:
 ### Local Setup
 ```bash
 # 1. Clone your fork
-git clone https://github.com/<your-username>/IntentLead-AI.git
-cd IntentLead-AI
+git clone https://github.com/<your-username>/Cold-Email-Outreach_by_ori9in.io.git
+cd Cold-Email-Outreach_by_ori9in.io
 
 # 2. Set up virtual environment
 python3 -m venv .venv

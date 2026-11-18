@@ -1020,6 +1020,7 @@ def test_telegram_webhook_fail_closed_in_production(db_session):
         APP_ENV="production",
         DATABASE_URL="sqlite:///:memory:",
         TELEGRAM_WEBHOOK_SECRET="secure-tg-secret-999",
+        TELEGRAM_ALLOWED_USER_ID="123456789",
     )
     app.dependency_overrides[get_settings] = lambda: prod_with_secret
 
@@ -1040,7 +1041,7 @@ def test_telegram_webhook_fail_closed_in_production(db_session):
         # Valid token -> succeeds and proceeds to telegram update handler
         res_ok = client.post(
             "/api/orchestrator/webhooks/telegram",
-            json={"update_id": 123, "message": {"text": "/start", "from": {"id": 999999}}},
+            json={"update_id": 123, "message": {"text": "/status", "from": {"id": 999999}}},
             headers={"X-Telegram-Bot-Api-Secret-Token": "secure-tg-secret-999"},
         )
         assert res_ok.status_code == 403

@@ -6,6 +6,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.0] - 2026-11-18
+
+### Added
+- **Interactive Setup Wizard**: Guided CLI onboarding (`setup.py` & `scripts/setup.py`) for configuring database engine (PostgreSQL or SQLite), web operator account, Google Gemini AI API key, Telegram bot, and mailboxes. Automatically verifies schema and provisions operator account.
+- **First-Run Detection Hooks**: Automated environment detection in `start.ps1` and `start.sh` that detects fresh repository clones and launches the onboarding wizard before service startup.
+- **Legal Compliance Address Gate**: Introduced `BUSINESS_POSTAL_ADDRESS` configuration required by CAN-SPAM, GDPR, and CASL regulations. Live outreach fails closed if missing; dry-run simulations remain unrestricted.
+- **Cascading Campaign Deletion**: Added modal-protected campaign deletion in UI and REST API (`DELETE /api/campaigns/{id}`) that cleanly deletes leads, evaluations, drafts, approvals, and unreferenced businesses.
+- **Scrapling Engine Guide**: Authored comprehensive documentation in `docs/discovery-scrapling.md` explaining stealth discovery architecture, web crawling, rate limits, and responsible scraping practices.
+
+### Changed
+- **Dynamic Dashboard State Indicators**: Replaced static status labels across web dashboard templates with dynamic badges reflecting the active `OUTREACH_DRY_RUN` configuration.
+- **Docker & Setup Database Alignment**: Standardized PostgreSQL as the default for Docker Compose deployments to ensure host tools and containers use identical database targets.
+- **Repository Sanitization for Open-Source**: Replaced placeholder URLs (`your-org`) with repository references, removed personal Telegram IDs from test fixtures, and established clean generic defaults.
+
+### Fixed
+- **Real Estate Scoping Fix**: Scoped listing search audits and service fit rankings to real estate niches only, preventing unrelated campaigns (e.g. dental clinics) from displaying real estate portal audit evidence.
+- **Overview Telemetry Metrics**: Scoped discovered target counts in the overview dashboard to active campaign businesses, eliminating orphaned records from deleted campaigns.
+- **Strict MX Deliverability Gate**: Eliminated unsafe bare A-record and raw socket fallbacks in preflight email checks, enforcing standard DNS MX resolution.
+
+---
+
 ## [0.2.1] - 2026-11-17
 
 ### Added

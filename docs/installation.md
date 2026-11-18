@@ -16,8 +16,8 @@ This guide covers getting IntentLead AI up and running locally or on a server us
 
 ### Step 1: Clone Repository
 ```bash
-git clone https://github.com/your-org/IntentLead-AI.git
-cd IntentLead-AI
+git clone https://github.com/ronit-roy-0007/Cold-Email-Outreach_by_ori9in.io.git
+cd Cold-Email-Outreach_by_ori9in.io
 ```
 
 ### Step 2: Initialize Environment File

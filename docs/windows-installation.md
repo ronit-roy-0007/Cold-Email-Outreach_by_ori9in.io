@@ -22,8 +22,8 @@ This guide details running IntentLead AI natively on Windows using Docker Deskto
 Open **PowerShell** or **Windows Terminal**:
 ```powershell
 # 1. Clone the repository
-git clone https://github.com/your-org/IntentLead-AI.git
-cd IntentLead-AI
+git clone https://github.com/ronit-roy-0007/Cold-Email-Outreach_by_ori9in.io.git
+cd Cold-Email-Outreach_by_ori9in.io
 
 # 2. Copy the example configuration
 Copy-Item .env.example .env

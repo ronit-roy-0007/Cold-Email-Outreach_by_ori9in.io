@@ -33,7 +33,7 @@ Settings can be defined in a `.env` file at the repository root or passed as sys
 |---|---|---|---|
 | `AGENCY_NAME` | `string` | `IntentLead` | Default agency name used across email signatures, headers, and Telegram notifications. |
 | `AGENCY_SENDER_NAME` | `string` | `Outreach Team` | Default human sender name used in cold email templates. |
-| `AGENCY_PHYSICAL_ADDRESS` | `string` | `100 Innovation Way...` | Physical postal address required in email footers for CAN-SPAM and GDPR compliance. |
+| `BUSINESS_POSTAL_ADDRESS` | `string` | `""` | Legitimate business physical postal address required in email footers for CAN-SPAM and international anti-spam compliance. Live dispatch fails closed if empty. (Legacy alias `AGENCY_PHYSICAL_ADDRESS` is also supported). |
 
 ---
 

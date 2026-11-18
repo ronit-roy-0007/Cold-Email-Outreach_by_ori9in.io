@@ -17,8 +17,8 @@ This guide covers installing and running IntentLead AI on macOS (macOS 12+ Monte
 Open **Terminal**:
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/IntentLead-AI.git
-cd IntentLead-AI
+git clone https://github.com/ronit-roy-0007/Cold-Email-Outreach_by_ori9in.io.git
+cd Cold-Email-Outreach_by_ori9in.io
 
 # Copy environment configuration
 cp .env.example .env
