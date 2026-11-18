@@ -18,10 +18,17 @@
         Empirical evaluation metrics, lead qualification funnels, and dispatch simulation statistics.
       </p>
     </div>
+    {% if dry_run %}
     <div class="env-pill dry-run">
       <span>●</span>
       <span>OUTREACH_DRY_RUN=TRUE</span>
     </div>
+    {% else %}
+    <div class="env-pill live" style="background: #ECFDF5; border: 1.5px solid #10B981; color: #065F46; padding: 0.25rem 0.65rem; border-radius: 4px; font-weight: 700; font-size: 0.75rem; display: flex; align-items: center; gap: 0.35rem;">
+      <span style="color: #10B981;">●</span>
+      <span>OUTREACH_LIVE=TRUE</span>
+    </div>
+    {% endif %}
   </div>
 </div>
 

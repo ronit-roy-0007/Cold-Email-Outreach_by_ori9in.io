@@ -80,11 +80,15 @@
   <div class="metric-card">
     <div class="metric-header">
       <span class="micro-label">DISPATCH ENGINE</span>
-      <span class="mono" style="font-size: 0.8rem; color: #D97706;">DRY_RUN</span>
+      <span class="mono" style="font-size: 0.8rem; color: {% if dry_run %}#D97706{% else %}#10B981{% endif %}; font-weight: 700;">
+        {% if dry_run %}DRY_RUN{% else %}LIVE{% endif %}
+      </span>
     </div>
     <div class="metric-value">{{ total_dispatched }}</div>
     <div class="metric-footer">
-      <span class="mono" style="font-size: 0.75rem; color: var(--text-muted);">{{ simulated_dispatched }} simulated (0 real emails)</span>
+      <span class="mono" style="font-size: 0.75rem; color: var(--text-muted);">
+        {% if dry_run %}{{ simulated_dispatched }} simulated (0 real emails){% else %}{{ total_dispatched }} real outbound emails sent{% endif %}
+      </span>
     </div>
   </div>
 
@@ -286,8 +290,12 @@
           <span class="badge badge-approved">Redis Cache (10m)</span>
         </div>
         <div style="display: flex; justify-content: space-between; align-items: center;">
-          <span style="color: var(--text-muted);">Outreach Dry-run mode</span>
-          <span class="badge badge-draft">STRICT ACTIVE</span>
+          <span style="color: var(--text-muted);">Outreach Mode</span>
+          {% if dry_run %}
+          <span class="badge badge-draft">DRY-RUN (SIMULATED)</span>
+          {% else %}
+          <span class="badge badge-approved" style="background: #ECFDF5; color: #065F46; border-color: #10B981;">LIVE (REAL SENDING)</span>
+          {% endif %}
         </div>
         <div style="display: flex; justify-content: space-between; align-items: center;">
           <span style="color: var(--text-muted);">Approval Enforcement</span>

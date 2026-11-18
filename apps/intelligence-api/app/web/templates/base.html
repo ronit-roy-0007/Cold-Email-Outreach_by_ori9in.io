@@ -87,7 +87,11 @@
         </div>
         <div class="telemetry-row">
           <span>OUTREACH</span>
-          <span style="color: var(--accent-lime); font-weight: 600;">DRY-RUN ON</span>
+          {% if dry_run %}
+          <span style="color: var(--accent-amber); font-weight: 600;">DRY-RUN ON</span>
+          {% else %}
+          <span style="color: #10B981; font-weight: 700;">LIVE ACTIVE</span>
+          {% endif %}
         </div>
         <div class="telemetry-row">
           <span>DB / REDIS</span>
@@ -113,10 +117,17 @@
       </div>
 
       <div class="topbar-right">
-        <div class="env-pill dry-run">
+        {% if dry_run %}
+        <div class="env-pill dry-run" style="cursor: default;" title="Outreach is simulated. Real emails will NOT be sent.">
           <span style="color: #D97706; font-size: 0.8rem;">●</span>
           <span>OUTREACH_DRY_RUN=TRUE</span>
         </div>
+        {% else %}
+        <div class="env-pill live" style="background: #ECFDF5; border: 1.5px solid #10B981; color: #065F46; padding: 0.25rem 0.65rem; border-radius: 4px; font-weight: 700; font-size: 0.75rem; display: flex; align-items: center; gap: 0.35rem; cursor: default;" title="Outreach is LIVE! Real emails will be delivered over SMTP.">
+          <span style="color: #10B981; font-size: 0.8rem;">●</span>
+          <span>OUTREACH_LIVE=TRUE</span>
+        </div>
+        {% endif %}
         <a href="/campaigns/new" class="btn btn-primary btn-sm">
           <span>+</span>
           <span>New Campaign</span>

@@ -81,8 +81,10 @@
 
   <div class="metric-card">
     <div class="metric-header">
-      <span class="micro-label">DISPATCHED / SIMULATED</span>
-      <span class="mono" style="font-size: 0.8rem; color: #D97706;">DRY_RUN</span>
+      <span class="micro-label">{% if campaign.dry_run %}DISPATCHED / SIMULATED{% else %}OUTREACH DELIVERED{% endif %}</span>
+      <span class="mono" style="font-size: 0.8rem; color: {% if campaign.dry_run %}#D97706{% else %}#10B981{% endif %}; font-weight: 700;">
+        {% if campaign.dry_run %}DRY_RUN{% else %}LIVE{% endif %}
+      </span>
     </div>
     <div class="metric-value">{{ sent_count }}</div>
     <div class="metric-footer">
