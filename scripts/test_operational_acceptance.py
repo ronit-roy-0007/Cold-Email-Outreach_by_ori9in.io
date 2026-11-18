@@ -194,9 +194,9 @@ class TestOperationalAcceptance(unittest.TestCase):
 
     def test_p2_05_benign_formatting_preserved(self):
         """Verify legitimate prospect reply content is cleanly preserved as plain text"""
-        legit_payload = "Hi Ronit,\n\nWe saw your audit. Can you tell us more about the <b>page speed</b> issues?\n\nBest,\nDr. Sarah"
+        legit_payload = "Hi Alex,\n\nWe saw your audit. Can you tell us more about the <b>page speed</b> issues?\n\nBest,\nDr. Sarah"
         clean = sanitize_email_text(legit_payload)
-        self.assertIn("Hi Ronit,", clean)
+        self.assertIn("Hi Alex,", clean)
         self.assertIn("page speed issues?", clean)
         self.assertIn("Dr. Sarah", clean)
         self.assertNotIn("<b>", clean)
@@ -213,7 +213,7 @@ class TestOperationalAcceptance(unittest.TestCase):
         log = record_audit_log(
             self.db,
             action="lead_approved",
-            actor="operator_6107263210",
+            actor="operator_admin",
             entity_type="lead",
             entity_id=test_entity_id,
             details={"priority": "A", "confidence": "high"},
@@ -226,7 +226,7 @@ class TestOperationalAcceptance(unittest.TestCase):
         self.assertEqual(persisted.action, "lead_approved")
         self.assertEqual(persisted.entity_type, "lead")
         self.assertEqual(persisted.entity_id, test_entity_id)
-        self.assertEqual(persisted.payload.get("actor"), "operator_6107263210")
+        self.assertEqual(persisted.payload.get("actor"), "operator_admin")
         self.assertIsNotNone(persisted.created_at)
         print("  ✓ Audit log integrity: Actor, timestamp, action, and payload verified in PostgreSQL")
 
@@ -341,7 +341,7 @@ class TestOperationalAcceptance(unittest.TestCase):
         # D. Gate 0 Lead Approval
         appr = Approval(
             lead_id=lead.id,
-            user_id="operator_6107263210",
+            user_id="operator_admin",
             action="approved",
         )
         self.db.add(appr)
@@ -387,7 +387,7 @@ class TestOperationalAcceptance(unittest.TestCase):
             sender_email=biz.email,
             recipient_email="outreach@ori9in.io",
             subject="Re: Performance teardown",
-            raw_body="Hi Ronit, yes please send over the teardown! What times work this week?",
+            raw_body="Hi Alex, yes please send over the teardown! What times work this week?",
             provider_message_id=f"inbound-test-{uid}@example.com",
             in_reply_to=conv.messages[0].provider_message_id if conv.messages else None,
         )
@@ -413,9 +413,9 @@ class TestOperationalAcceptance(unittest.TestCase):
             actor="telegram_bot",
             entity_type="conversation",
             entity_id=conv.id,
-            details={"operator_id": "6107263210", "prospect": biz.email},
+            details={"operator_id": "admin_123456789", "prospect": biz.email},
         )
-        print("  [K] Telegram Notification: Live alert format recorded for operator 6107263210")
+        print("  [K] Telegram Notification: Live alert format recorded for operator admin_123456789")
 
         # L. Unified Inbox Conversation Management
         inbox_resp = self.client.get(f"/api/web/inbox/conversations?q={uid}")
@@ -430,7 +430,7 @@ class TestOperationalAcceptance(unittest.TestCase):
             self.settings,
             conversation_id=conv.id,
             body="Great to hear! Thursday at 2 PM CST works well. I'll send an invite.",
-            operator_id="operator_6107263210",
+            operator_id="operator_admin",
         )
         self.db.commit()
         self.db.expire_all()

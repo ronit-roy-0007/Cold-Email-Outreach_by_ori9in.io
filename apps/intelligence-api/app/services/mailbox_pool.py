@@ -99,7 +99,7 @@ def load_mailbox_pool(db: Session, settings: Settings) -> list[MailboxConfig]:
             pool_dict[fallback_email] = MailboxConfig(
                 email=fallback_email,
                 password=fallback_pwd,
-                sender_name=settings.AGENCY_SENDER_NAME or "Ronit",
+                sender_name=settings.AGENCY_SENDER_NAME or "Alex",
                 daily_limit=settings.MAX_EMAILS_PER_DAY or 50,
                 is_active=True,
             )

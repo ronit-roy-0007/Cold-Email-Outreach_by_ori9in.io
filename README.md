@@ -77,54 +77,54 @@ IntentLead AI is an open-source, self-hosted lead acquisition and cold outreach 
 
 ---
 
-## ⚡ Quickstart with Docker Compose
+## ⚡ Quickstart & Setup
 
 ### 1. Clone the Repository
 ```bash
-git clone https://github.com/your-org/IntentLead-AI.git
-cd IntentLead-AI
+git clone https://github.com/ronit-roy-0007/Cold-Email-Outreach_by_ori9in.io.git
+cd Cold-Email-Outreach_by_ori9in.io
 ```
 
-### 2. Configure Environment
+### 2. Interactive Setup Wizard (Recommended - 60 Seconds)
+Run the guided configuration wizard to automatically configure your database (SQLite or PostgreSQL), admin login credentials, Google Gemini AI key, and Telegram bot:
+
 ```bash
-# Linux / macOS:
+python setup.py
+```
+*Note: If you run `.\start.ps1` (Windows) or `./start.sh` (Linux), it will automatically detect a new installation and launch the setup wizard for you!*
+
+---
+
+### Alternative: Docker Compose Setup
+
+```bash
+# 1. Copy configuration template
 cp .env.example .env
 
-# Windows (PowerShell):
-Copy-Item .env.example .env
-```
-Open `.env` and set your credentials:
-```bash
-# Telegram Operator Bot (from @BotFather)
-TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here
-TELEGRAM_ALLOWED_USER_ID=your_numeric_telegram_user_id
-
-# Google Gemini AI Key (from aistudio.google.com)
-USER_LLM_API_KEY=your_gemini_api_key_here
-
-# Cryptographic Keys (generate 32-char random strings)
-FIELD_ENCRYPTION_KEY=your_32_character_encryption_key_here
-UNSUBSCRIBE_SECRET=your_32_character_unsub_secret_here
-```
-
-### 3. Launch Services
-```bash
+# 2. Launch container stack
 docker compose up -d --build
+
+# 3. Create your admin operator account
+docker compose exec api python scripts/bootstrap_operator.py --username admin --password "YourSecurePassword!"
 ```
+
+### 3. Launching IntentLead AI
+
+- **Windows (PowerShell):**
+  ```powershell
+  .\start.ps1 -Both
+  ```
+- **Linux / macOS:**
+  ```bash
+  ./start.sh --both
+  ```
 
 ### 4. Authenticate to the Operator Dashboard
 Navigate to:
 ```text
 http://localhost:8000/login
 ```
-- **Default Development Credentials**:
-  - Username: `admin`
-  - Password: `IntentLeadAdmin2026!`
-- **Production Setup**:
-  Configure `BOOTSTRAP_OPERATOR_PASSWORD` in your `.env` or provision via CLI:
-  ```bash
-  docker compose exec api python scripts/bootstrap_operator.py --username admin --password "YourSecurePassword!"
-  ```
+Log in using the operator username and password you configured during setup.
 
 ---
 

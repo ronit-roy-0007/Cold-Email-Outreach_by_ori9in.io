@@ -3,6 +3,16 @@ set -e
 
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
+# Check if first-time setup is needed
+if [ ! -f "$ROOT_DIR/.env" ] && [ ! -f "$ROOT_DIR/apps/intelligence-api/.env" ]; then
+  echo "[!] No configuration (.env) detected. Launching setup wizard..."
+  python3 "$ROOT_DIR/scripts/setup.py"
+  if [ ! -f "$ROOT_DIR/.env" ] && [ ! -f "$ROOT_DIR/apps/intelligence-api/.env" ]; then
+    echo "Setup was not completed. Exiting."
+    exit 1
+  fi
+fi
+
 if [ "$1" == "--poller" ]; then
   cd "$ROOT_DIR"
   export PYTHONPATH="apps/intelligence-api"

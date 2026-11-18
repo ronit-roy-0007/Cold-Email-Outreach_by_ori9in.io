@@ -322,7 +322,7 @@ def process_due_followups(
             biz = db.get(Business, lead.business_id) if (lead and lead.business_id) else None
             biz_name = biz.name if biz else "Business"
             svc = lead.recommended_service if lead else None
-            sender = settings.AGENCY_SENDER_NAME or "Ronit"
+            sender = settings.AGENCY_SENDER_NAME or "Alex"
 
             subject, body = generate_followup_message_body(
                 item.sequence_step,

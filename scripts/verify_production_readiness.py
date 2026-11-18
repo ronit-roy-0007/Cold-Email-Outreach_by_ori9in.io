@@ -349,14 +349,15 @@ class TestProductionReadiness(unittest.TestCase):
         """Test real Telegram delivery to authorized operator with fallback capability"""
         print("\n[DOMAIN 3: Real Telegram Delivery]")
         self.assertTrue(bool(self.settings.TELEGRAM_BOT_TOKEN), "TELEGRAM_BOT_TOKEN must be configured")
-        self.assertEqual(str(self.settings.TELEGRAM_ALLOWED_USER_ID), "6107263210")
+        self.assertTrue(bool(self.settings.TELEGRAM_ALLOWED_USER_ID), "TELEGRAM_ALLOWED_USER_ID must be configured")
+        op_id = str(self.settings.TELEGRAM_ALLOWED_USER_ID)
 
         # Send test notification to operator
         test_msg = (
             "🧪 *INTENTLEAD AI AUDIT TELEGRAM PROBE*\n\n"
             "• Domain: Inbound reply & follow-up notification\n"
             "• Safety: OUTREACH_DRY_RUN=True (Zero prospect emails sent)\n"
-            "• Target Operator ID: `6107263210`\n"
+            f"• Target Operator ID: `{op_id}`\n"
             "• Status: Verification Probe OK"
         )
         delivered = send_telegram_text(

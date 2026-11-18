@@ -83,7 +83,10 @@ def send_real_telegram_message(token: str, chat_id: str | int, text: str, button
 def run_full_verification():
     settings = get_settings()
     token = settings.TELEGRAM_BOT_TOKEN
-    operator_id = str(settings.TELEGRAM_ALLOWED_USER_ID or "6107263210")
+    operator_id = str(settings.TELEGRAM_ALLOWED_USER_ID or "")
+    if not operator_id:
+        print("Error: TELEGRAM_ALLOWED_USER_ID is not configured in settings/.env")
+        return
 
     report = {
         "timestamp": datetime.now(timezone.utc).isoformat(),

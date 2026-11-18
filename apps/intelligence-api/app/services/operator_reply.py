@@ -84,7 +84,7 @@ def send_operator_reply(
     provider_msg_id = f"intentlead-op-{uuid.uuid4().hex[:12]}@intentlead.agency"
 
     # 3. Dispatch / Simulation
-    sender_name = settings.AGENCY_SENDER_NAME or "Ronit"
+    sender_name = settings.AGENCY_SENDER_NAME or "Alex"
     sender_email = conv.sender_email or settings.SENDER_EMAIL or "outreach@example.com"
     delivery_status = "simulated"
 

@@ -23,7 +23,11 @@ class SecurityConfigError(Exception):
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=(".env", str(Path(__file__).resolve().parent.parent / ".env")),
+        env_file=(
+            ".env",
+            str(Path(__file__).resolve().parent.parent / ".env"),
+            str(Path(__file__).resolve().parent.parent.parent.parent / ".env"),
+        ),
         extra="ignore"
     )
 

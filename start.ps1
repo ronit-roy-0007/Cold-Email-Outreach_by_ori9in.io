@@ -6,6 +6,17 @@ param (
 
 $ErrorActionPreference = "Stop"
 $workspaceRoot = $PSScriptRoot
+$apiDir = Join-Path $workspaceRoot "apps\intelligence-api"
+
+# Check if first-time setup is needed
+if (-not (Test-Path "$workspaceRoot\.env") -and -not (Test-Path "$apiDir\.env")) {
+    Write-Host "[!] No configuration (.env) detected. Launching setup wizard..." -ForegroundColor Yellow
+    python "$workspaceRoot\scripts\setup.py"
+    if (-not (Test-Path "$workspaceRoot\.env") -and -not (Test-Path "$apiDir\.env")) {
+        Write-Host "Setup was not completed. Exiting." -ForegroundColor Red
+        exit 1
+    }
+}
 
 if ($Poller) {
     Set-Location $workspaceRoot

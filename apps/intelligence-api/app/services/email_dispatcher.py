@@ -239,7 +239,7 @@ def dispatch_single_email(
     """
     recipient_email = (biz.email or "").strip()
     eff_agency_name = (agency_name or settings.AGENCY_NAME or "IntentLead").strip()
-    eff_sender_name = (sender_name or settings.AGENCY_SENDER_NAME or "Ronit").strip()
+    eff_sender_name = (sender_name or settings.AGENCY_SENDER_NAME or "Alex").strip()
     eff_sender_email = (sender_email or settings.SENDER_EMAIL or f"outreach@{eff_agency_name.lower().replace(' ', '')}").strip()
     eff_provider = (settings.EMAIL_PROVIDER or "smtp").lower()
 

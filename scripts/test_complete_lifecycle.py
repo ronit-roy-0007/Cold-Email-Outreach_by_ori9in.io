@@ -220,7 +220,7 @@ class TestCompleteLifecycle(unittest.TestCase):
         init_msg = self.__class__.initial_message
 
         reply_body = (
-            "Hi Ronit,\n\nThanks for reaching out! We definitely need help with our website speed.\n"
+            "Hi Alex,\n\nThanks for reaching out! We definitely need help with our website speed.\n"
             "What are your rates and can we jump on a call this Thursday at 2 PM?\n\nDr. Austin"
         )
 
@@ -267,7 +267,7 @@ class TestCompleteLifecycle(unittest.TestCase):
         operator_text = (
             "Hello Dr. Austin,\n\n"
             "Thank you for the reply. Thursday at 2 PM works perfectly for our calendar.\n"
-            "Here is the invite link. Looking forward to speaking!\n\nBest,\nRonit"
+            "Here is the invite link. Looking forward to speaking!\n\nBest,\nAlex"
         )
 
         op_result = send_operator_reply(

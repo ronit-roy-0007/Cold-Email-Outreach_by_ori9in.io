@@ -1,5 +1,5 @@
 """
-Live Telegram Interaction & Evidence Verification for Authorized Operator 6107263210.
+Live Telegram Interaction & Evidence Verification for Authorized Operator.
 Executes the live onboarding workflow from Question 6 -> Question 7 -> Confirmation -> Launch,
 sending actual live Telegram messages to the operator chat and capturing full evidence.
 """
@@ -47,7 +47,10 @@ def send_live_telegram_message(token: str, chat_id: str | int, text: str, button
 def run_live_verification():
     settings = get_settings()
     token = settings.TELEGRAM_BOT_TOKEN
-    operator_id = str(settings.TELEGRAM_ALLOWED_USER_ID or "6107263210")
+    operator_id = str(settings.TELEGRAM_ALLOWED_USER_ID or "")
+    if not operator_id:
+        print("Error: TELEGRAM_ALLOWED_USER_ID is not configured in settings/.env")
+        return
 
     print("=" * 80)
     print("LIVE TELEGRAM WORKFLOW VERIFICATION FOR OPERATOR:", operator_id)
