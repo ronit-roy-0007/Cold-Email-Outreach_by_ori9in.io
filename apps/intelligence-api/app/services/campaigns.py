@@ -10,6 +10,7 @@ from app.config import Settings
 from app.models import (
     Approval,
     AuditLog,
+    Business,
     Campaign,
     CampaignLeftoverLead,
     Conversation,
@@ -72,7 +73,9 @@ def delete_campaign(session: Session, campaign_id: uuid.UUID) -> bool:
     if not camp:
         return False
 
-    lead_ids = [r[0] for r in session.query(Lead.id).filter(Lead.campaign_id == campaign_id).all()]
+    lead_rows = session.query(Lead.id, Lead.business_id).filter(Lead.campaign_id == campaign_id).all()
+    lead_ids = [r[0] for r in lead_rows]
+    biz_ids = [r[1] for r in lead_rows if r[1] is not None]
 
     if lead_ids:
         session.query(DimensionScore).filter(DimensionScore.lead_id.in_(lead_ids)).delete(synchronize_session=False)
@@ -109,6 +112,13 @@ def delete_campaign(session: Session, campaign_id: uuid.UUID) -> bool:
 
     # Delete Leads
     session.query(Lead).filter(Lead.campaign_id == campaign_id).delete(synchronize_session=False)
+
+    # Clean up businesses that are no longer linked to any remaining campaign/lead
+    if biz_ids:
+        still_linked = set(r[0] for r in session.query(Lead.business_id).filter(Lead.business_id.in_(biz_ids)).all())
+        orphaned_biz_ids = [bid for bid in set(biz_ids) if bid not in still_linked]
+        if orphaned_biz_ids:
+            session.query(Business).filter(Business.id.in_(orphaned_biz_ids)).delete(synchronize_session=False)
 
     # Finally delete Campaign
     session.delete(camp)

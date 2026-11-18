@@ -321,8 +321,8 @@ def overview_dashboard(
 ):
     ctx = get_common_context(db, "overview", settings, request=request)
 
-    # Core Metrics
-    total_businesses = db.query(Business).count()
+    # Core Metrics (Targets in active campaigns)
+    total_businesses = db.query(Business.id).join(Lead, Business.id == Lead.business_id).distinct().count()
     total_leads = db.query(Lead).count()
     pending_approvals = ctx["pending_count"]
     approved_leads = db.query(Lead).filter_by(outreach_status="approved").count()
