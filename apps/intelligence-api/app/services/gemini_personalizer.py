@@ -234,7 +234,7 @@ You MUST respond strictly with valid JSON with no preamble or commentary:
         _GEMINI_LIMITER.acquire()
 
     try:
-        with urllib.request.urlopen(req, timeout=30.0) as resp:
+        with urllib.request.urlopen(req, timeout=30.0) as resp:  # nosec B310
             raw_body = resp.read().decode("utf-8")
             data = json.loads(raw_body)
     except urllib.error.HTTPError as err:

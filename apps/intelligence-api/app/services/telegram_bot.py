@@ -747,7 +747,7 @@ def format_profile_card(
 
 def format_commands_menu(prof_name: str, prof_agency: str) -> str:
     return (
-        f"🤖 *IntentLead AI Operator Hub*\n"
+        f"🤖 *IntentLead AI Operator Hub*\n"  # nosec B608
         f"👤 *Operator:* *{prof_name}* ({prof_agency})\n\n"
         f"Here are all your commands — simple and ready to use:\n\n"
         f"🎯 `/findleads` — Start finding clients! Search any business type in any city\n"
