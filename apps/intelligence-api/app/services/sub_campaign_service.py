@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import csv
 import io
-import re
 from typing import Any, Callable
 from urllib.parse import urlparse
 import uuid
@@ -15,11 +14,9 @@ from app.models import (
     Business,
     Campaign,
     CampaignLeftoverLead,
-    DimensionScore,
     Lead,
     MessageDraft,
     OutboundMessage,
-    utc_now,
 )
 from app.services.email_dispatcher import dispatch_single_email
 from app.services.mailbox_pool import get_next_available_mailbox, load_mailbox_pool
@@ -170,7 +167,7 @@ def check_existing_leftover_leads(
     query = (
         db.query(CampaignLeftoverLead)
         .filter(
-            CampaignLeftoverLead.is_consumed == False,
+            CampaignLeftoverLead.is_consumed.is_(False),
             func.lower(CampaignLeftoverLead.niche) == niche_clean,
             func.lower(CampaignLeftoverLead.location) == loc_clean,
         )
@@ -450,9 +447,6 @@ def generate_total_volume_csv(db: Session, campaign_id: uuid.UUID) -> str:
     (including those that failed security/deliverability checks like bounced, suppressed, throttled, failed).
     Strictly EXCLUDES remaining leads that were never checked or attempted!
     """
-    camp = db.get(Campaign, campaign_id)
-    niche = camp.niche if camp else "Campaign"
-
     leads = (
         db.query(Lead, Business)
         .join(Business, Lead.business_id == Business.id)

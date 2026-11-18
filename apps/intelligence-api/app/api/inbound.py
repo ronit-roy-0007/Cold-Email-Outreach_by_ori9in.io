@@ -13,7 +13,7 @@ import re
 from typing import Any
 import uuid
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -158,7 +158,7 @@ async def inbound_email_webhook(
             provider_message_id = resend_data.get("message_id") or resend_data.get("id")
             in_reply_to = resend_data.get("in_reply_to")
             references = resend_data.get("references")
-            
+
             # Extract RFC headers if structured in Resend
             h_obj = resend_data.get("headers")
             if isinstance(h_obj, list):
@@ -212,7 +212,7 @@ async def inbound_email_webhook(
         references = str(form.get("references") or form.get("References") or "") or None
         provider_message_id = str(form.get("message-id") or form.get("Message-Id") or "") or None
         headers_raw = str(form.get("headers") or form.get("message-headers") or "")
-        
+
         # Mailgun parameters
         mailgun_token = form.get("token")
         mailgun_timestamp = form.get("timestamp")

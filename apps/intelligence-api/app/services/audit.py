@@ -84,7 +84,7 @@ def production_fetcher(url: str) -> FetchResult:
 
     while redirect_count <= max_redirects:
         try:
-            target = validate_public_url(current_url)
+            validate_public_url(current_url)
         except UnsafeURL as exc:
             return FetchResult(status=0, final_url=current_url, error=f"SSRF blocked: {exc}")
 

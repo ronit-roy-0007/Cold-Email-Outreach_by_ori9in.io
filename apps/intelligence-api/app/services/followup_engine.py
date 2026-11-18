@@ -6,11 +6,10 @@ of multi-touch follow-up campaigns with strict stop-condition enforcement.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any
 import uuid
 
-from sqlalchemy import and_, desc, select
 from sqlalchemy.orm import Session
 
 from app.config import Settings
@@ -21,14 +20,10 @@ from app.models import (
     ConversationMessage,
     FollowUpExecution,
     Lead,
-    MessageDraft,
-    OutboundMessage,
     SuppressionEntry,
     utc_now,
 )
 from app.services.audit import record_audit_log
-from app.services.email_compliance import build_unsubscribe_url, format_compliant_email_body
-from app.services.email_dispatcher import dispatch_single_email
 
 
 def calculate_scheduled_date(
@@ -254,7 +249,7 @@ def process_due_followups(
     and safe dry-run execution.
     """
     current_time = now or utc_now()
-    
+
     query = (
         db.query(FollowUpExecution)
         .filter(

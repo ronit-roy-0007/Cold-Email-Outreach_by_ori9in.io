@@ -8,6 +8,8 @@ import uuid
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from app.providers.prospect_generator import generate_candidate_businesses
+
 # Enable sync httpx.Client usage with ASGITransport in tests
 try:
     import httpx
@@ -58,9 +60,6 @@ def load_fixture_businesses() -> list[dict[str, Any]]:
         except Exception:
             return []
     return []
-
-
-from app.providers.prospect_generator import generate_candidate_businesses
 
 
 def create_mock_job(

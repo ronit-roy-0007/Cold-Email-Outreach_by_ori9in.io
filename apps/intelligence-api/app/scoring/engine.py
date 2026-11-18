@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
-import uuid
 
 from app.models import Business, Evidence
 from app.scoring import reasons
@@ -90,7 +89,7 @@ def score_lead(
         None,
     )
     no_viewport_ev = next((e for e in evidence if e.supporting_excerpt == "no_viewport"), None)
-    has_viewport_ev = next((e for e in evidence if e.supporting_excerpt == "has_viewport"), None)
+    _has_viewport_ev = next((e for e in evidence if e.supporting_excerpt == "has_viewport"), None)
     missing_search_ev = next((e for e in evidence if e.supporting_excerpt == "missing_listing_search"), None)
     has_search_ev = next((e for e in evidence if e.supporting_excerpt == "has_listing_search"), None)
     has_form_ev = next((e for e in evidence if e.supporting_excerpt == "has_form"), None)

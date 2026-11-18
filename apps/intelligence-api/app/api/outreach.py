@@ -16,7 +16,7 @@ from app.models import OutboundMessage, SuppressionEntry
 from app.security import check_rate_limit, verify_api_key
 from app.services.email_compliance import verify_unsubscribe_token
 from app.services.email_dispatcher import dispatch_approved_campaign_leads
-from app.services.email_gate import add_to_suppression_list, is_suppressed
+from app.services.email_gate import add_to_suppression_list
 
 router = APIRouter(prefix="/api/outreach", tags=["outreach"])
 

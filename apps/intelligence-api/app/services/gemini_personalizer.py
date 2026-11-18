@@ -7,7 +7,6 @@ import logging
 import re
 import threading
 import time
-from typing import Any
 import urllib.request
 import urllib.error
 import uuid
@@ -114,7 +113,7 @@ def generate_gemini_personalized_draft(
     """
     Invokes Google Gemini to generate a structured, hyper-personalized B2B cold outreach
     email draft consisting of a curiosity-driven Subject Line and a concise 3-sentence Email Body.
-    
+
     Raises:
         GeminiConfigError: If USER_LLM_API_KEY is not configured.
         GeminiRateLimitError: If HTTP 429 quota exhaustion is received.

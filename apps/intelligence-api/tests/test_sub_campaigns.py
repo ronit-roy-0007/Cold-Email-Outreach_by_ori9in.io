@@ -29,13 +29,17 @@ from app.services.telegram_bot import handle_telegram_update
 
 
 @pytest.fixture(autouse=True)
-def setup_operator(db_session):
+def setup_operator(db_session, monkeypatch):
     # Ensure operator profile exists
     prof = db_session.get(OperatorProfile, "123456789")
     if not prof:
         prof = OperatorProfile(user_id="123456789", sender_name="Roy", agency_name="ori9in.io")
         db_session.add(prof)
         db_session.commit()
+
+    # Mock DNS MX resolution for mock domains in subcampaign integration tests
+    from app.services import email_gate
+    monkeypatch.setattr(email_gate, "check_domain_mx", lambda domain, resolver_fn=None: (True, None))
     yield
 
 

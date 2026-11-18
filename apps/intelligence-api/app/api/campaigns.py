@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
 from app.db import get_session
-from app.models import Campaign, ScrapeJob
+from app.models import ScrapeJob
 from app.providers.import_loader import load_import
 from app.security import CampaignCreateSchema, check_rate_limit, verify_api_key
 from app.services.campaigns import create_campaign, delete_campaign, get_campaign, list_campaigns

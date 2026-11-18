@@ -16,7 +16,6 @@ from app.services.audit import record_audit_log
 from app.services.gemini_personalizer import (
     GeminiAPIError,
     GeminiConfigError,
-    GeminiError,
     GeminiRateLimitError,
     generate_gemini_personalized_draft,
 )

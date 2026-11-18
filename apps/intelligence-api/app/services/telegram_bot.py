@@ -14,11 +14,6 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
-
-logger = logging.getLogger("telegram_bot")
-# Suppress verbose HTTP client logs that may reflect Telegram URLs with bot tokens
-logging.getLogger("httpx").setLevel(logging.WARNING)
-logging.getLogger("httpcore").setLevel(logging.WARNING)
 from app.models import (
     Approval,
     AuditLog,
@@ -39,7 +34,7 @@ from app.services.pipeline import run_campaign
 from app.services.gemini_personalizer import generate_gemini_pitch
 from app.services.social import get_business_social_links, get_lead_messages, sanitize_website
 from app.services.email_dispatcher import dispatch_approved_campaign_leads
-from app.services.geo_expansion import get_nearby_regions, get_next_expansion_location
+from app.services.geo_expansion import get_next_expansion_location
 from app.services.sub_campaign_service import (
     check_existing_leftover_leads,
     consume_leftover_leads,
@@ -51,12 +46,16 @@ from app.services.sub_campaign_service import (
 )
 from app.services.mailbox_pool import (
     add_mailbox_account,
-    format_app_password,
     get_pool_status,
     parse_addmailbox_args,
     remove_mailbox_account,
     verify_gmail_credentials,
 )
+
+logger = logging.getLogger("telegram_bot")
+# Suppress verbose HTTP client logs that may reflect Telegram URLs with bot tokens
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
 def format_approval_card(
@@ -943,7 +942,7 @@ def format_followup_summary(session_data: dict[str, Any], fu_config: dict[str, A
     if enabled:
         delays = fu_config.get("delays", [])
         sched_type = fu_config.get("schedule_type", "calendar").title()
-        sequence_lines = [f"  • *Initial Email:* Day 0 (on operator approval)"]
+        sequence_lines = ["  • *Initial Email:* Day 0 (on operator approval)"]
         for idx, d in enumerate(delays):
             sequence_lines.append(f"  • *Follow-up {idx + 1}:* Day +{d} ({sched_type} days)")
         seq_text = "\n".join(sequence_lines)
@@ -1088,7 +1087,7 @@ def _execute_wizard_campaign(
     )
 
     csv_str = generate_campaign_csv(db, camp.id, min_score=bench_score, limit=qty, require_valid_email=True)
-    filename = f"Sub_Campaign_1_Preview.csv"
+    filename = "Sub_Campaign_1_Preview.csv"
 
     buttons = None
     if matching_leads > 0:
@@ -1653,7 +1652,7 @@ def handle_telegram_update(
             )
             buttons = [
                 [
-                    {"text": f"🚀 Continue Next Sub-Campaign", "callback_data": f"subcamp_auto:{camp.id}:{camp.sub_campaign_index}"},
+                    {"text": "🚀 Continue Next Sub-Campaign", "callback_data": f"subcamp_auto:{camp.id}:{camp.sub_campaign_index}"},
                     {"text": f"🏁 Finish Early with {camp.total_sent_emails} Sent", "callback_data": f"finish_campaign_early:{camp.id}"},
                 ]
             ]
@@ -1868,7 +1867,7 @@ def handle_telegram_update(
             )
 
             csv_str = generate_campaign_csv(db, camp.id, min_score=new_score, limit=camp.target_sent_emails)
-            filename = f"Sub_Campaign_1_Preview.csv"
+            filename = "Sub_Campaign_1_Preview.csv"
 
             if settings.TELEGRAM_BOT_TOKEN and user_id:
                 caption = f"📄 Sub-Campaign 1 Preview: {matching_leads} qualified leads ready (Score ≥ {new_score})"
@@ -1940,7 +1939,7 @@ def handle_telegram_update(
                     {"text": f"🚀 Approve All Remaining ({pending_count})", "callback_data": f"bulk_approve:{camp.id}:80"},
                 ])
                 pause_buttons.append([
-                    {"text": f"🔍 Resume Review One-by-One", "callback_data": f"start_review:{camp.id}:80"},
+                    {"text": "🔍 Resume Review One-by-One", "callback_data": f"start_review:{camp.id}:80"},
                 ])
             pause_buttons.append([
                 {"text": "📥 Export CSV", "callback_data": f"export_csv:{camp.id}"},
@@ -2050,7 +2049,7 @@ def handle_telegram_update(
                 return {
                     "status": "success",
                     "message": f"Lead {action_word}. All caught up!",
-                    "reply": f"🎉 *Review Complete!*\n\nAll qualified leads in this campaign have been processed. Click below to export the CSV or send `/findleads` for new leads.",
+                    "reply": "🎉 *Review Complete!*\n\nAll qualified leads in this campaign have been processed. Click below to export the CSV or send `/findleads` for new leads.",
                     "buttons": finish_buttons,
                 }
 
@@ -2875,7 +2874,7 @@ def handle_telegram_update(
         default_sender = prof.sender_name if prof and prof.sender_name else sender_name
         try:
             mb_email, mb_pass, mb_sender = parse_addmailbox_args(text, default_sender=default_sender)
-        except ValueError as exc:
+        except ValueError:
             return {
                 "status": "error",
                 "reply": (
@@ -3129,7 +3128,7 @@ def handle_telegram_update(
                     {"text": f"🚀 Approve All Remaining ({pending_count})", "callback_data": f"bulk_approve:{latest_camp.id}:80"},
                 ])
                 pause_buttons.append([
-                    {"text": f"🔍 Resume Review One-by-One", "callback_data": f"start_review:{latest_camp.id}:80"},
+                    {"text": "🔍 Resume Review One-by-One", "callback_data": f"start_review:{latest_camp.id}:80"},
                 ])
             pause_buttons.append([
                 {"text": "📥 Export CSV", "callback_data": f"export_csv:{latest_camp.id}"},
@@ -3171,10 +3170,10 @@ def handle_telegram_update(
             session_data["step"] = "awaiting_quantity"
             _USER_WIZARD_SESSIONS[user_key] = session_data
             reply = (
-                f"✅ Services recorded!\n\n"
-                f"📊 *Step 4/7: Quantity of Leads*\n"
-                f"How many leads would you like to discover?\n"
-                f"_(e.g., 10, 25, 50, 100)_"
+                "✅ Services recorded!\n\n"
+                "📊 *Step 4/7: Quantity of Leads*\n"
+                "How many leads would you like to discover?\n"
+                "_(e.g., 10, 25, 50, 100)_"
             )
             return {"status": "in_progress", "reply": reply}
 
@@ -3400,9 +3399,9 @@ def handle_telegram_update(
         if not leads:
             return {"status": "success", "reply": f"No leads found in Priority band {band}."}
         lines = [f"🏆 *Priority {band} Leads:*"]
-        for l, b in leads:
-            lines.append(f"• *{b.name}* — Score: {l.overall_score}/100 | Svc: {l.recommended_service or 'None'}")
-            lines.append(f"  ID: `{l.id}`")
+        for lead, biz in leads:
+            lines.append(f"• *{biz.name}* — Score: {lead.overall_score}/100 | Svc: {lead.recommended_service or 'None'}")
+            lines.append(f"  ID: `{lead.id}`")
         return {"status": "success", "reply": "\n".join(lines)}
 
     if text.startswith("/card"):
@@ -3791,7 +3790,7 @@ def handle_telegram_update(
         delivered_count = min(matching_leads, qty) if qty > 0 else matching_leads
 
         csv_str = generate_campaign_csv(db, camp.id, min_score=bench_score, limit=qty, only_unattempted=True)
-        filename = f"Sub_Campaign_1_Preview.csv"
+        filename = "Sub_Campaign_1_Preview.csv"
 
         buttons = None
         if matching_leads > 0:

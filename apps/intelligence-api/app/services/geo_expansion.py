@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import re
-from typing import Any
-
 NEARBY_REGION_MAP: dict[str, list[str]] = {
     # Broad / Nationwide / Multi-Metro Fallbacks
     "nationwide": ["New York, NY", "Los Angeles, CA", "Chicago, IL", "Houston, TX", "Dallas, TX", "Miami, FL", "Atlanta, GA"],

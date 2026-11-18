@@ -13,6 +13,7 @@ from app.models import (
     Business,
     Campaign,
     DimensionScore,
+    Evidence,
     Lead,
     MessageDraft,
     ScrapeJob,
@@ -23,7 +24,6 @@ from app.providers.types import NormalizedListing
 from app.scoring.engine import score_lead
 from app.services.audit import audit_business
 from app.services.drafts import build_draft
-from app.services.geo_expansion import get_next_expansion_location
 from app.services.sub_campaign_service import is_business_duplicate
 
 
@@ -63,12 +63,12 @@ def process_listings(
 
     # Parallelize website audits across a thread pool (16 workers)
     def _audit_task(pair: tuple[Business, Lead]) -> tuple[Business, Lead, list[Evidence]]:
-        b, l = pair
+        biz_cand, lead_cand = pair
         # For live outreach campaigns, skip heavy network audit if business has no email or no website
-        if not b.website or (campaign.provider in ("scrapling", "live", "google_maps") and not b.email):
-            return b, l, []
-        evs = audit_business(None, campaign.id, b, fetcher=fetcher)
-        return b, l, evs
+        if not biz_cand.website or (campaign.provider in ("scrapling", "live", "google_maps") and not biz_cand.email):
+            return biz_cand, lead_cand, []
+        evs = audit_business(None, campaign.id, biz_cand, fetcher=fetcher)
+        return biz_cand, lead_cand, evs
 
     if len(candidates) > 1 and (fetcher is None or campaign.provider in ("live", "google_maps", "scrapling")):
         from concurrent.futures import ThreadPoolExecutor
@@ -76,7 +76,7 @@ def process_listings(
         with ThreadPoolExecutor(max_workers=workers) as pool:
             audited_items = list(pool.map(_audit_task, candidates))
     else:
-        audited_items = [(b, l, audit_business(None, campaign.id, b, fetcher=fetcher)) for b, l in candidates]
+        audited_items = [(biz_cand, lead_cand, audit_business(None, campaign.id, biz_cand, fetcher=fetcher)) for biz_cand, lead_cand in candidates]
 
     for biz, lead, evidence_list in audited_items:
         for ev in evidence_list:

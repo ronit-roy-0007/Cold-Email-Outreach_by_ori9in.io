@@ -157,28 +157,28 @@ def build_draft(
 
     # 1. 100% Coherent Gap Hook + Solution Pair directly matched to recommended_service
     if recommended_service == "real_estate_listing_portal":
-        gap_intro = f"I was looking at your website and noticed there's no direct property listing search or filter for buyers browsing your site."
+        gap_intro = "I was looking at your website and noticed there's no direct property listing search or filter for buyers browsing your site."
         solution_note = f"We build custom property listing search portals for {clean_name} so buyers can browse and inquire directly without bouncing."
     elif recommended_service == "crm_appointment_automation":
-        gap_intro = f"I checked your website and noticed clients can't directly book an appointment or viewing with your team online."
+        gap_intro = "I checked your website and noticed clients can't directly book an appointment or viewing with your team online."
         solution_note = f"We set up automated appointment and showing scheduling for {clean_name} so you never lose high-intent clients to manual phone tag."
     elif recommended_service == "ai_chatbot":
-        gap_intro = f"I was browsing your website and noticed you don't have a 24/7 AI chat assistant to capture inquiries after hours or on weekends."
+        gap_intro = "I was browsing your website and noticed you don't have a 24/7 AI chat assistant to capture inquiries after hours or on weekends."
         solution_note = f"We deploy 24/7 AI chat assistants for {clean_name} that automatically answer questions and capture lead details around the clock."
     elif recommended_service == "website_redesign":
-        gap_intro = f"I checked your website on my phone and noticed it isn't fully responsive for mobile screens, making it tough for mobile visitors to reach out."
+        gap_intro = "I checked your website on my phone and noticed it isn't fully responsive for mobile screens, making it tough for mobile visitors to reach out."
         solution_note = f"We build modern, fast, and mobile-friendly websites for {clean_name} with built-in inquiry capture to increase client conversions."
     elif recommended_service == "website_development":
         gap_intro = f"I noticed {clean_name} doesn't have an active website listed yet, which means potential clients might be going straight to competitors."
         solution_note = f"We build high-converting, modern websites for {clean_name} with built-in lead capture to establish a strong online presence."
     elif recommended_service == "lead_management_followup":
-        gap_intro = f"I was reviewing your online presence and noticed there's no instant follow-up system when a new inquiry reaches out."
+        gap_intro = "I was reviewing your online presence and noticed there's no instant follow-up system when a new inquiry reaches out."
         solution_note = f"We set up automated lead capture and prompt follow-up systems for {clean_name} to ensure every inquiry is engaged immediately."
     elif recommended_service == "business_process_automation":
-        gap_intro = f"I was reviewing your customer feedback and noticed opportunities to eliminate delays in client callbacks and scheduling."
+        gap_intro = "I was reviewing your customer feedback and noticed opportunities to eliminate delays in client callbacks and scheduling."
         solution_note = f"We set up automated workflow systems for {clean_name} that handle inquiries, client reminders, and scheduling on autopilot."
     else:
-        gap_intro = f"I was reviewing your online presence and noticed an opportunity to improve how you capture and convert inbound inquiries."
+        gap_intro = "I was reviewing your online presence and noticed an opportunity to improve how you capture and convert inbound inquiries."
         solution_note = f"We set up automated systems for {clean_name} ({svc_display}) so you never lose qualified inquiries to competitors."
 
     # 2. Short reputation / social proof note

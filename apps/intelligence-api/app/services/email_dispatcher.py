@@ -4,7 +4,6 @@ import random
 import smtplib
 import sys
 import time
-from datetime import datetime, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Any, Callable
@@ -14,7 +13,16 @@ import httpx
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.models import Business, Campaign, Lead, MessageDraft, OutboundMessage, utc_now
+from app.models import (
+    Business,
+    Campaign,
+    Conversation,
+    ConversationMessage,
+    Lead,
+    MessageDraft,
+    OutboundMessage,
+    utc_now,
+)
 from app.services.drafts import generate_hook_subject
 from app.services.email_compliance import (
     build_unsubscribe_url,
@@ -23,7 +31,6 @@ from app.services.email_compliance import (
 )
 from app.services.email_gate import (
     check_and_increment_daily_quota,
-    is_suppressed,
     preflight_deliverability_gate,
 )
 from app.services.mailbox_pool import (
@@ -182,7 +189,6 @@ def _record_conversation_and_schedule_followups(
     compliant_body: str,
 ) -> None:
     try:
-        from app.models import Campaign, Conversation, ConversationMessage
         from app.services.followup_engine import schedule_followups_for_conversation
 
         conv = db.query(Conversation).filter_by(lead_id=lead.id).first()
@@ -223,7 +229,7 @@ def _record_conversation_and_schedule_followups(
             campaign = db.query(Campaign).filter_by(id=lead.campaign_id).first()
             if campaign and campaign.followup_sequence:
                 schedule_followups_for_conversation(db, conv, campaign)
-    except Exception as exc:
+    except Exception:
         pass
 
 

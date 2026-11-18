@@ -180,7 +180,7 @@ def generate_candidate_businesses(
     ]
 
     businesses: list[dict[str, Any]] = []
-    rng = random.Random(42 + seed_offset)
+    _rng = random.Random(42 + seed_offset)  # Preserved deterministic generator seed
 
     total_combos = max(1, len(prefixes) * len(suffixes))
 
@@ -217,7 +217,7 @@ def generate_candidate_businesses(
         if scenario in ("explicit_intent", "brochure", "widgets"):
             reviews = [
                 f"Slow response time to customer inquiry at {name}.",
-                f"Hard to reach online; experienced friction booking consultation.",
+                "Hard to reach online; experienced friction booking consultation.",
             ]
         else:
             reviews = [

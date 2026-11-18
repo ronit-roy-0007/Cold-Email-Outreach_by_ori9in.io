@@ -78,7 +78,7 @@ def load_mailbox_pool(db: Session, settings: Settings) -> list[MailboxConfig]:
                 pass
 
     # 2. Merge from Database table mailbox_accounts
-    from app.services.crypto import decrypt_credential, encrypt_credential
+    from app.services.crypto import decrypt_credential
     db_accounts = db.query(MailboxAccount).filter_by(is_active=True).all()
     for acc in db_accounts:
         clean_email = acc.email.strip().lower()

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-import socket
 from datetime import datetime, timezone
 from typing import Callable
 from sqlalchemy.orm import Session
