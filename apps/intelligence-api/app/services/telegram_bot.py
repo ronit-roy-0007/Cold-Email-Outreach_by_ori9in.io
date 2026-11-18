@@ -1290,13 +1290,16 @@ def handle_telegram_update(
             remaining_needed = max(0, camp.target_sent_emails - camp.total_sent_emails)
             max_batch_send = min(remaining_needed, camp.requested_quantity) if camp.requested_quantity > 0 else remaining_needed
 
-            # The operator clicked "Approve Batch X" -> transition qualified draft leads to approved
+            # The operator clicked "Approve Batch X" -> transition qualified draft leads WITH verified emails to approved
             batch_candidates = (
                 db.query(Lead)
+                .join(Business, Lead.business_id == Business.id)
                 .filter(
                     Lead.campaign_id == camp.id,
                     Lead.overall_score >= bench_score,
                     Lead.outreach_status == "draft",
+                    Business.email.isnot(None),
+                    Business.email != "",
                 )
                 .order_by(Lead.overall_score.desc())
                 .all()

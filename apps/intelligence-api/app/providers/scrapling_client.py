@@ -22,10 +22,87 @@ IGNORE_EXTENSIONS = (
     ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp",
     ".css", ".js", ".woff", ".woff2", ".ico", ".ttf",
 )
-IGNORE_DOMAINS = (
-    "sentry.io", "wixpress.com", "example.com", "schema.org",
-    "domain.com", "email.com", "w3.org", "googleapis.com",
-)
+RECOGNIZED_PUBLIC_MAIL_DOMAINS = {
+    "gmail.com", "googlemail.com", "yahoo.com", "ymail.com",
+    "hotmail.com", "outlook.com", "live.com", "msn.com",
+    "icloud.com", "me.com", "mac.com", "aol.com", "proton.me", "protonmail.com",
+    "zoho.com", "mail.com", "gmx.com", "comcast.net", "verizon.net",
+    "att.net", "sbcglobal.net", "cox.net", "charter.net", "bellsouth.net",
+}
+
+BLOCKED_EMAIL_DOMAINS = {
+    "sentry.io", "wixpress.com", "example.com", "example.org", "schema.org",
+    "domain.com", "email.com", "w3.org", "googleapis.com", "godaddy.com",
+    "secureserver.net", "astigmatic.com", "yourdomain.com", "company.com",
+    "website.com", "test.com", "mysite.com", "sample.com", "wordpress.org",
+    "wix.com", "squarespace.com", "weebly.com", "shopify.com", "cloudflare.com",
+    "bootstrap.com", "themeforest.net", "envato.com", "gravatar.com",
+    "alluredigital.net", "google.com", "facebook.com", "instagram.com",
+    "twitter.com", "x.com", "linkedin.com", "youtube.com",
+}
+
+BLOCKED_LOCAL_PARTS = {
+    "user", "name", "username", "filler", "yourname", "youremail",
+    "test", "demo", "sample", "example", "admin", "webmaster",
+    "no-reply", "noreply", "donotreply", "privacy", "postmaster",
+}
+
+
+def extract_root_domain(url_or_domain: str) -> str:
+    """Extracts root domain e.g. 'https://www.deltaroofingnyc.com/page' -> 'deltaroofingnyc.com'"""
+    if not url_or_domain:
+        return ""
+    clean = url_or_domain.lower().strip()
+    if clean.startswith("http://") or clean.startswith("https://"):
+        try:
+            parsed = urllib.parse.urlparse(clean)
+            host = parsed.netloc or parsed.path
+        except Exception:
+            host = clean
+    else:
+        host = clean.split("/")[0]
+    host = host.split(":")[0].strip().rstrip(".")
+    parts = host.split(".")
+    if len(parts) >= 2:
+        if len(parts) >= 3 and parts[-2] in ("co", "com", "net", "org", "gov", "edu") and len(parts[-1]) == 2:
+            return ".".join(parts[-3:])
+        return ".".join(parts[-2:])
+    return host
+
+
+def is_valid_business_email(email: str, website_url: str = "") -> bool:
+    if not email or "@" not in email:
+        return False
+    clean = email.strip().lower().rstrip(".,;:!?'\"")
+    parts = clean.split("@", 1)
+    if len(parts) != 2:
+        return False
+    local_part, domain = parts[0].strip(), parts[1].strip()
+
+    if not local_part or not domain:
+        return False
+    if local_part in BLOCKED_LOCAL_PARTS:
+        return False
+    if domain in BLOCKED_EMAIL_DOMAINS or any(domain.endswith("." + b) for b in BLOCKED_EMAIL_DOMAINS):
+        return False
+    if any(clean.endswith(ext) for ext in IGNORE_EXTENSIONS):
+        return False
+
+    # Domain Affinity check:
+    # 1. Recognized public webmail used by local businesses
+    if domain in RECOGNIZED_PUBLIC_MAIL_DOMAINS:
+        return True
+
+    # 2. Matches website root domain (e.g. sales@mightyroofingny.com for mightyroofingny.com)
+    site_root = extract_root_domain(website_url)
+    if site_root:
+        email_root = extract_root_domain(domain)
+        if email_root == site_root or site_root in domain or domain in site_root:
+            return True
+        # If it doesn't match the website and is not public webmail, it's a third-party theme/font/agency email!
+        return False
+
+    return True
 
 
 @dataclass
@@ -39,29 +116,35 @@ class JobResult:
 _SCRAPLING_JOBS: dict[str, JobResult] = {}
 
 
-def extract_emails_from_html(html: str) -> list[str]:
-    emails = set()
+def extract_emails_from_html(html: str, website_url: str = "") -> list[str]:
+    emails: list[str] = []
+    seen: set[str] = set()
+
+    def _add_if_valid(raw_addr: str) -> None:
+        clean = raw_addr.strip().lower().rstrip(".,;:!?'\"")
+        if clean and clean not in seen and is_valid_business_email(clean, website_url):
+            seen.add(clean)
+            emails.append(clean)
+
+    # 1. Parse mailto links
     try:
         sel = Selector(html)
         for mailto in sel.css("a[href^='mailto:']"):
             href = mailto.attrib.get("href", "")
             clean = href.replace("mailto:", "").split("?")[0].strip()
             if clean and "@" in clean:
-                emails.add(clean.lower())
+                _add_if_valid(clean)
     except Exception:
         pass
 
+    # 2. Parse text regex
     # De-obfuscate common anti-spam patterns: [at], (at), and Japanese fullwidth ＠
     clean_html = re.sub(r"\s*(?:\[at\]|\(at\)|＠)\s*", "@", html, flags=re.IGNORECASE)
+    clean_html = re.sub(r"\s*(?:\[dot\]|\(dot\))\s*", ".", clean_html, flags=re.IGNORECASE)
     for match in EMAIL_REGEX.findall(clean_html):
-        lower = match.lower().strip()
-        if any(lower.endswith(ext) for ext in IGNORE_EXTENSIONS):
-            continue
-        if any(d in lower for d in IGNORE_DOMAINS):
-            continue
-        emails.add(lower)
+        _add_if_valid(match)
 
-    return list(emails)
+    return emails
 
 
 def extract_social_links_from_html(html: str) -> dict[str, str]:
@@ -94,7 +177,7 @@ def extract_social_links_from_html(html: str) -> dict[str, str]:
 def crawl_website_details(website_url: str) -> tuple[str | None, dict[str, str]]:
     """
     Crawls a business website in one single pass:
-    Extracts verified email AND social media profiles (LinkedIn, IG, FB, X, YouTube).
+    Extracts verified email with domain affinity AND social media profiles (LinkedIn, IG, FB, X, YouTube).
     """
     if not website_url or not website_url.startswith("http"):
         return None, {}
@@ -103,38 +186,47 @@ def crawl_website_details(website_url: str) -> tuple[str | None, dict[str, str]]
     socials: dict[str, str] = {}
 
     try:
-        resp = Fetcher.get(website_url, timeout=6, retries=1)
+        resp = Fetcher.get(website_url, timeout=7, retries=1)
         if resp.status == 200 and resp.html_content:
-            ems = extract_emails_from_html(resp.html_content)
+            ems = extract_emails_from_html(resp.html_content, website_url=website_url)
             if ems:
                 email = ems[0]
 
             socials = extract_social_links_from_html(resp.html_content)
 
-            # If no email found on homepage, check contact or about page
+            # If no email found on homepage, search prioritized contact and quote pages
             if not email:
                 sel = Selector(resp.html_content)
+                contact_links: list[tuple[int, str]] = []
                 for a in sel.css("a[href]"):
-                    h = a.attrib.get("href", "")
+                    h = a.attrib.get("href", "").strip()
                     t = (a.text or "").lower()
                     h_low = h.lower()
-                    if any(w in h_low or w in t for w in ("contact", "about", "team", "reach", "inquiry", "mail", "form", "toiawase", "問合", "メール")):
+                    if any(w in h_low or w in t for w in ("contact", "about", "team", "reach", "inquiry", "mail", "form", "quote", "estimate", "toiawase", "問合", "メール")):
                         c_url = urllib.parse.urljoin(website_url, h)
                         if c_url != website_url and c_url.startswith("http"):
-                            try:
-                                c_resp = Fetcher.get(c_url, timeout=6, retries=1)
-                                if c_resp.status == 200 and c_resp.html_content:
-                                    c_ems = extract_emails_from_html(c_resp.html_content)
-                                    if c_ems:
-                                        email = c_ems[0]
-                                    # Merge any extra socials found on contact page
-                                    c_soc = extract_social_links_from_html(c_resp.html_content)
-                                    for k, v in c_soc.items():
-                                        if k not in socials:
-                                            socials[k] = v
-                            except Exception:
-                                pass
-                            break
+                            # Prioritize contact/quote pages over about pages
+                            priority = 0 if any(k in h_low for k in ("contact", "quote", "estimate", "reach")) else 1
+                            if not any(existing_url == c_url for _, existing_url in contact_links):
+                                contact_links.append((priority, c_url))
+
+                contact_links.sort(key=lambda x: x[0])
+                # Check up to 3 highest priority contact links
+                for _, c_url in contact_links[:3]:
+                    try:
+                        c_resp = Fetcher.get(c_url, timeout=6, retries=1)
+                        if c_resp.status == 200 and c_resp.html_content:
+                            c_ems = extract_emails_from_html(c_resp.html_content, website_url=website_url)
+                            if c_ems:
+                                email = c_ems[0]
+                            c_soc = extract_social_links_from_html(c_resp.html_content)
+                            for k, v in c_soc.items():
+                                if k not in socials:
+                                    socials[k] = v
+                            if email:
+                                break
+                    except Exception:
+                        pass
     except Exception as exc:
         logger.debug("Failed crawling %s: %s", website_url, exc)
 

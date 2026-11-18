@@ -100,7 +100,19 @@ def preflight_deliverability_gate(
         if is_suppressed(db, clean_email):
             return False, "recipient_on_suppression_list"
 
-    domain = clean_email.split("@")[1]
+    parts = clean_email.split("@", 1)
+    if len(parts) != 2:
+        return False, "invalid_email_syntax"
+    local_part, domain = parts[0].strip(), parts[1].strip()
+
+    # Reject known template dummy local parts
+    if local_part in {"user", "name", "username", "filler", "yourname", "youremail", "test", "demo", "sample", "example", "admin", "webmaster"}:
+        return False, f"preflight_mx_failed: rejected_placeholder_local_part: '{local_part}'"
+
+    # Reject known template / platform placeholder domains
+    if domain in {"domain.com", "astigmatic.com", "godaddy.com", "secureserver.net", "sentry.io", "wixpress.com", "yourdomain.com", "website.com", "test.com", "mysite.com", "sample.com"}:
+        return False, f"preflight_mx_failed: rejected_placeholder_domain: '{domain}'"
+
     is_valid_domain, domain_err = check_domain_mx(domain, resolver_fn=resolver_fn)
     if not is_valid_domain:
         return False, f"preflight_mx_failed: {domain_err}"

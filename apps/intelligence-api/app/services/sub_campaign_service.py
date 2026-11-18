@@ -343,6 +343,8 @@ def dispatch_subcampaign_batch(
         .join(Business, Lead.business_id == Business.id)
         .filter(Lead.campaign_id == campaign_id)
         .filter(Lead.outreach_status == "approved")
+        .filter(Business.email.isnot(None))
+        .filter(Business.email != "")
     )
     if lead_ids:
         query = query.filter(Lead.id.in_(lead_ids))

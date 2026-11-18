@@ -293,14 +293,17 @@ def run_campaign(
                 campaign.is_exhausted = True
                 break
 
-            # Check if we reached target unattempted qualified count
+            # Check if we reached target unattempted qualified count with deliverable emails
             if min_score > 0:
                 unattempted_count = (
                     session.query(Lead)
+                    .join(Business, Lead.business_id == Business.id)
                     .filter(
                         Lead.campaign_id == campaign.id,
                         Lead.overall_score >= min_score,
                         Lead.outreach_status.in_(["draft", "approved"]),
+                        Business.email.isnot(None),
+                        Business.email != "",
                     )
                     .count()
                 )
@@ -311,14 +314,17 @@ def run_campaign(
                 campaign.is_exhausted = False
                 break
 
-        # If after all scrape attempts, unattempted qualified count is still less than requested, location is exhausted
+        # If after all scrape attempts, unattempted qualified count with emails is still less than requested, location is exhausted
         if min_score > 0:
             final_unattempted = (
                 session.query(Lead)
+                .join(Business, Lead.business_id == Business.id)
                 .filter(
                     Lead.campaign_id == campaign.id,
                     Lead.overall_score >= min_score,
                     Lead.outreach_status.in_(["draft", "approved"]),
+                    Business.email.isnot(None),
+                    Business.email != "",
                 )
                 .count()
             )
