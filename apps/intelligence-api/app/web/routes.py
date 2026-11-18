@@ -51,7 +51,7 @@ from app.services.auth import (
     record_login_success,
     verify_password,
 )
-from app.services.campaigns import create_campaign, get_campaign, list_campaigns
+from app.services.campaigns import create_campaign, delete_campaign, get_campaign, list_campaigns
 from app.services.crypto import encrypt_credential
 from app.services.followup_engine import pause_followups, resume_followups
 from app.services.operator_reply import send_operator_reply
@@ -689,6 +689,30 @@ def export_campaign_csv(
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename=campaign_{campaign_id}.csv"},
     )
+
+
+@web_router.post("/api/web/campaigns/{campaign_id}/delete")
+def api_web_delete_campaign(
+    campaign_id: uuid.UUID,
+    db: Session = Depends(get_session),
+):
+    deleted = delete_campaign(db, campaign_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+    return {
+        "status": "success",
+        "message": "Campaign and all related data deleted successfully",
+        "campaign_id": str(campaign_id),
+    }
+
+
+@web_router.post("/campaigns/{campaign_id}/delete")
+def web_delete_campaign_form(
+    campaign_id: uuid.UUID,
+    db: Session = Depends(get_session),
+):
+    delete_campaign(db, campaign_id)
+    return RedirectResponse(url="/campaigns", status_code=303)
 
 
 # ==============================================================================

@@ -11,7 +11,7 @@ from app.db import get_session
 from app.models import Campaign, ScrapeJob
 from app.providers.import_loader import load_import
 from app.security import CampaignCreateSchema, check_rate_limit, verify_api_key
-from app.services.campaigns import create_campaign, get_campaign, list_campaigns
+from app.services.campaigns import create_campaign, delete_campaign, get_campaign, list_campaigns
 from app.services.pipeline import process_listings, run_campaign
 
 router = APIRouter(prefix="/api/campaigns", tags=["campaigns"])
@@ -93,6 +93,18 @@ def get_campaign_endpoint(
         else None,
         "created_at": campaign.created_at.isoformat(),
     }
+
+
+@router.delete("/{campaign_id}", dependencies=[Depends(check_rate_limit)])
+def delete_campaign_endpoint(
+    campaign_id: uuid.UUID,
+    db: Session = Depends(get_session),
+    _: str = Depends(verify_api_key),
+) -> dict[str, Any]:
+    deleted = delete_campaign(db, campaign_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+    return {"status": "deleted", "campaign_id": str(campaign_id)}
 
 
 @router.post("/{campaign_id}/import", dependencies=[Depends(check_rate_limit)])

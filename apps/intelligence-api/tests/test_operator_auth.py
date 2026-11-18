@@ -519,3 +519,46 @@ def test_telegram_onboarding_and_web_login_flow(clean_client, db_session, auth_s
     )
     assert vip_login.status_code == 303
     assert auth_settings.SESSION_COOKIE_NAME in vip_login.cookies
+
+
+def test_web_delete_campaign_authenticated(clean_client, db_session, auth_settings):
+    import uuid
+    from app.models import Campaign
+    from app.services.campaigns import create_campaign
+
+    # Bootstrap operator
+    user = ensure_bootstrap_operator(db_session, auth_settings)
+    session_record, raw_token = create_operator_session(
+        db_session, user, max_age_seconds=auth_settings.SESSION_MAX_AGE_SECONDS
+    )
+    csrf_token = generate_csrf_token(raw_token, auth_settings.SESSION_SECRET_KEY)
+    clean_client.cookies.set(auth_settings.SESSION_COOKIE_NAME, raw_token)
+    clean_client.cookies.set("intentlead_csrf", csrf_token)
+
+    # Create a campaign
+    camp = create_campaign(
+        db_session,
+        {
+            "niche": "Solar Installers",
+            "location": "Phoenix, AZ",
+            "requested_quantity": 5,
+            "target_services": ["website_development"],
+        },
+        auth_settings,
+    )
+    db_session.commit()
+    camp_id = camp.id
+
+    assert db_session.get(Campaign, camp_id) is not None
+
+    # Call web delete endpoint
+    res = clean_client.post(
+        f"/api/web/campaigns/{camp_id}/delete",
+        headers={"x-csrf-token": csrf_token},
+    )
+    assert res.status_code == 200
+    assert res.json()["status"] == "success"
+
+    # Verify completely wiped from DB
+    assert db_session.get(Campaign, camp_id) is None
+

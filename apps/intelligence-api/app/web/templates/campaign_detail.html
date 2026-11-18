@@ -30,13 +30,16 @@
       </div>
     </div>
 
-    <div style="display: flex; gap: 0.75rem;">
+    <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
       <a href="/campaigns/{{ campaign.id }}/export.csv" class="btn btn-secondary">
         ⬇ Export Clean CSV
       </a>
       <a href="/approvals?campaign_id={{ campaign.id }}" class="btn btn-primary">
         Review Approvals Queue ({{ draft_count }})
       </a>
+      <button type="button" class="btn btn-danger" onclick="promptDeleteCampaign('{{ campaign.id }}', '{{ campaign.niche|escape }}', '{{ campaign.location|escape }}')" title="Delete this campaign">
+        🗑️ Delete Campaign
+      </button>
     </div>
   </div>
 </div>
@@ -221,4 +224,90 @@
     </table>
   </div>
 </div>
+
+<!-- Delete Confirmation Modal Pop-up Window -->
+<div id="delete-campaign-modal" class="modal-backdrop">
+  <div class="modal-window" style="max-width: 480px;">
+    <div class="modal-header" style="background: #FEF2F2; border-bottom: 2px solid #F87171;">
+      <div style="display: flex; align-items: center; gap: 0.5rem;">
+        <span style="font-size: 1.25rem;">⚠️</span>
+        <h3 style="margin: 0; font-size: 1.15rem; color: #991B1B;">Delete Campaign Confirmation</h3>
+      </div>
+      <button type="button" onclick="closeModal('delete-campaign-modal')" style="background: none; border: none; font-size: 1.3rem; line-height: 1; cursor: pointer; color: #991B1B;" aria-label="Close">&times;</button>
+    </div>
+    <div class="modal-body" style="padding: 1.5rem;">
+      <p style="font-size: 1.05rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.75rem;">
+        Are you sure you want to delete this campaign?
+      </p>
+      <div style="background: var(--bg-canvas); border: 1.5px solid var(--border-subtle); border-radius: 4px; padding: 0.85rem; margin-bottom: 1rem;">
+        <div class="micro-label" style="color: var(--text-muted);">CAMPAIGN TARGET</div>
+        <div id="delete-modal-campaign-name" style="font-size: 1.15rem; font-weight: 700; margin-top: 0.2rem; color: var(--text-main);"></div>
+        <div id="delete-modal-campaign-loc" class="mono" style="font-size: 0.8rem; color: var(--accent-blue); margin-top: 0.15rem;"></div>
+      </div>
+      <p style="font-size: 0.85rem; color: #DC2626; line-height: 1.45; margin: 0; background: #FEF2F2; padding: 0.75rem; border-radius: 4px; border: 1px solid #FECACA;">
+        <strong>Warning:</strong> The campaign and <em>everything</em> included with that campaign will be permanently deleted from the database (all qualified leads, score metrics, audit evidence, email drafts, approvals, and outbound dispatch records). This action cannot be undone.
+      </p>
+    </div>
+    <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 0.75rem;">
+      <button type="button" class="btn btn-secondary" onclick="closeModal('delete-campaign-modal')">
+        No, Cancel
+      </button>
+      <button type="button" id="confirm-delete-btn" class="btn btn-danger" onclick="executeDeleteCampaign()">
+        Yes, Delete Campaign
+      </button>
+    </div>
+  </div>
+</div>
 {% endblock %}
+
+{% block extra_scripts %}
+<script>
+let pendingDeleteCampaignId = null;
+
+function promptDeleteCampaign(campaignId, niche, location) {
+  pendingDeleteCampaignId = campaignId;
+  const nameEl = document.getElementById('delete-modal-campaign-name');
+  const locEl = document.getElementById('delete-modal-campaign-loc');
+  if (nameEl) nameEl.textContent = niche;
+  if (locEl) locEl.textContent = location;
+  openModal('delete-campaign-modal');
+}
+
+async function executeDeleteCampaign() {
+  if (!pendingDeleteCampaignId) return;
+  const btn = document.getElementById('confirm-delete-btn');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Deleting...';
+  }
+
+  try {
+    const res = await fetch(`/api/web/campaigns/${pendingDeleteCampaignId}/delete`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': getCsrfToken(),
+      }
+    });
+
+    const data = await res.json();
+    if (res.ok) {
+      closeModal('delete-campaign-modal');
+      showToast('Campaign and all associated database records deleted successfully!', 'success');
+      setTimeout(() => {
+        window.location.href = '/campaigns';
+      }, 500);
+    } else {
+      showToast(`Error: ${data.detail || data.message || 'Failed to delete campaign'}`, 'error');
+    }
+  } catch (err) {
+    showToast(`Network error: ${err.message}`, 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Yes, Delete Campaign';
+    }
+    pendingDeleteCampaignId = null;
+  }
+}
+</script>
